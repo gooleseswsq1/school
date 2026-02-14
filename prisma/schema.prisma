@@ -1,0 +1,57 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  TEACHER
+  STUDENT
+}
+
+enum DocumentType {
+  VIDEO
+  POWERPOINT
+  WORD
+  PDF
+  OTHER
+}
+
+model User {
+  id        String     @id @default(cuid())
+  email     String     @unique
+  name      String
+  password  String
+  role      UserRole   @default(STUDENT)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  
+  // Relations
+  documents Document[] @relation("DocumentAuthor")
+  
+  @@index([email])
+  @@index([role])
+}
+
+model Document {
+  id        String     @id @default(cuid())
+  title     String
+  description String?
+  fileUrl   String
+  fileType  DocumentType
+  fileSize  Int? // in bytes
+  author    User       @relation("DocumentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  authorId  String
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  
+  @@index([authorId])
+  @@index([fileType])
+  @@index([createdAt])
+}
