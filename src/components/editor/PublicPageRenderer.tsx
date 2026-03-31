@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { useRouter } from "next/navigation";
+import { getAuthUser } from '@/lib/auth-storage';
 import { Loader, Download, ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 import toast from "react-hot-toast";
 import dynamic from "next/dynamic";
@@ -583,14 +583,13 @@ export default function PublicPageRenderer({
   };
 
   const handleGoBack = () => {
-    const user = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
+    const user = getAuthUser();
     if (user) {
       try {
-        const parsedUser = JSON.parse(user);
         // Redirect to appropriate home page based on role
-        if (parsedUser.role === 'STUDENT') {
+        if (user.role === 'STUDENT') {
           router.push('/student/pages');
-        } else if (parsedUser.role === 'TEACHER') {
+        } else if (user.role === 'TEACHER') {
           router.push('/teacher');
         } else {
           router.back();

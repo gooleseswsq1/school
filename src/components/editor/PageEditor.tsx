@@ -385,6 +385,11 @@ export default function PageEditor({ authorId, readOnly = false, initialTitle, p
   const handleDeletePage = async (pageId: string) => {
     if (!confirm("Bạn có chắc chắn muốn xóa trang này? Tất cả trang con cũng sẽ bị xóa.")) return;
 
+    if (!authorId) {
+      toast.error("Lỗi: Không tìm thấy ID người dùng");
+      return;
+    }
+
     setIsLoading(true);
     try {
       const response = await fetch(`/api/pages/${pageId}?authorId=${authorId}`, {
