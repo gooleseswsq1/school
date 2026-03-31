@@ -550,6 +550,23 @@ export default function PublicPageRenderer({
   const [blockContents, setBlockContents] = useState<Record<string, any>>({});
   const [loadingBlocks, setLoadingBlocks] = useState<Set<string>>(new Set());
 
+  // Auto-expand VIDEO blocks on page load so students don't need to click to see videos
+  useEffect(() => {
+    if (page?.blocks) {
+      const autoExpandIds = page.blocks
+        .filter((b: any) => b.type === "VIDEO" && b.videoUrl)
+        .map((b: any) => b.id);
+      if (autoExpandIds.length > 0) {
+        setExpandedBlocks(prev => {
+          const next = new Set(prev);
+          autoExpandIds.forEach((id: string) => next.add(id));
+          return next;
+        });
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page?.id]);
+
   const handleBlockExpand = async (blockId: string) => {
     const isCurrentlyExpanded = expandedBlocks.has(blockId);
 
