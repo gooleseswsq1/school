@@ -12,12 +12,12 @@ const LEVELS   = ["Cấp 1 (Tiểu học)","Cấp 2 (THCS)","Cấp 3 (THPT)"];
 
 interface SchoolResult { id: string; name: string; address?: string }
 interface FormData {
-  role: "TEACHER" | "STUDENT" | "";
+  role: "TEACHER" | "STUDENT" | "ADMIN" | "";
   name: string; email: string; password: string;
   schoolId: string; schoolName: string; level: string;
   subjects: string[];
   className: string; // học sinh điền tên lớp (vd: 10A1)
-  activationCode: string; // giáo viên nhập mã kích hoạt từ admin
+  activationCode: string; // giáo viên/admin nhập mã kích hoạt hoặc mã bootstrap
 }
 
 function FadeField({ delay = 0, label, visible, required, hint, children }: {
@@ -44,6 +44,7 @@ function FadeField({ delay = 0, label, visible, required, hint, children }: {
 
 export default function RegisterForm() {
   const router = useRouter();
+  const adminBootstrapEnabled = process.env.NEXT_PUBLIC_ENABLE_ADMIN_BOOTSTRAP === "true";
   const [step, setStep]       = useState(1);
   const [stepKey, setStepKey] = useState(0);
   const [vis, setVis]         = useState(true);
@@ -58,6 +59,10 @@ export default function RegisterForm() {
   const [loading, setLoading]             = useState(false);
   const [error, setError]                 = useState("");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isAdminRole = form.role === "ADMIN";
+  const roleOptions = adminBootstrapEnabled
+    ? (["TEACHER", "STUDENT", "ADMIN"] as const)
+    : (["TEACHER", "STUDENT"] as const);
 
   const set = <K extends keyof FormData>(k: K, v: FormData[K]) => setForm(f => ({ ...f, [k]: v }));
   const toggleSubject = (s: string) =>
@@ -94,11 +99,14 @@ export default function RegisterForm() {
 
   const handleSubmit = async () => {
     setError("");
-    if (!form.schoolName.trim()) return setError("Vui lòng nhập tên trường");
-    if (!form.level)             return setError("Vui lòng chọn cấp học");
+    if (form.role !== "ADMIN" && !form.schoolName.trim()) return setError("Vui lòng nhập tên trường");
+    if (form.role !== "ADMIN" && !form.level)             return setError("Vui lòng chọn cấp học");
     if (form.role === "TEACHER") {
       if (form.subjects.length === 0) return setError("Vui lòng chọn ít nhất 1 môn giảng dạy");
       if (!form.activationCode.trim()) return setError("Vui lòng nhập mã kích hoạt do admin cung cấp");
+    }
+    if (form.role === "ADMIN" && !form.activationCode.trim()) {
+      return setError("Vui lòng nhập mã khởi tạo admin");
     }
     if (form.role === "STUDENT" && !form.className.trim())
       return setError("Vui lòng nhập tên lớp (ví dụ: 10A1)");
@@ -113,13 +121,14 @@ export default function RegisterForm() {
           name: form.name,
           email: form.email,
           password: form.password,
-          schoolId: form.schoolId || undefined,
-          schoolName: form.schoolName,
-          level: form.level,
+          schoolId: form.role === "ADMIN" ? undefined : form.schoolId || undefined,
+          schoolName: form.role === "ADMIN" ? undefined : form.schoolName,
+          level: form.role === "ADMIN" ? undefined : form.level,
           subjects: form.role === "TEACHER" ? form.subjects : [],
           className: form.role === "STUDENT" ? form.className.trim().toUpperCase() : "",
-          // Giáo viên cần mã kích hoạt từ admin
-          activationCode: form.role === "TEACHER" ? form.activationCode.trim().toUpperCase() : undefined,
+          activationCode: ["TEACHER", "ADMIN"].includes(form.role)
+            ? form.activationCode.trim().toUpperCase()
+            : undefined,
         }),
       });
       const data = await res.json();
@@ -138,7 +147,9 @@ export default function RegisterForm() {
     fontSize: 14, color: "#1a202c", outline: "none",
     transition: "border-color .18s", fontFamily: "inherit",
   };
-  const stepLabels = ["Tài khoản", form.role === "STUDENT" ? "Trường & lớp" : "Trường & môn"];
+  const stepLabels = isAdminRole
+    ? ["Tài khoản"]
+    : ["Tài khoản", form.role === "STUDENT" ? "Trường & lớp" : "Trường & môn"];
 
   return (
     <>
@@ -178,8 +189,8 @@ export default function RegisterForm() {
         {/* STEP 1: Role + basic info */}
         {step === 1 && (<>
           <FadeField label="Bạn là" required visible={vis}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              {(["TEACHER", "STUDENT"] as const).map(r => {
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(${roleOptions.length}, minmax(0, 1fr))`, gap: 10 }}>
+              {roleOptions.map(r => {
                 const active = form.role === r;
                 return (
                   <button key={r} type="button" onClick={() => set("role", r)} style={{
@@ -189,7 +200,7 @@ export default function RegisterForm() {
                     color: active ? B : "#6b7280", cursor: "pointer", transition: "all .18s",
                     display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
                   }}>
-                    {r === "TEACHER" ? "Giáo viên" : "Học sinh"}
+                    {r === "TEACHER" ? "Giáo viên" : r === "STUDENT" ? "Học sinh" : "Quản trị"}
                   </button>
                 );
               })}
@@ -202,6 +213,11 @@ export default function RegisterForm() {
             {form.role === "TEACHER" && (
               <div style={{ marginTop: 10, padding: "10px 14px", borderRadius: 10, background: BL, border: `1px solid ${BB}`, fontSize: 12, color: "#1e40af" }}>
                 Giáo viên cần nhập <strong>mã kích hoạt</strong> do admin cung cấp để đăng ký. Hệ thống sẽ tự tạo mã giáo viên duy nhất sau khi đăng ký thành công.
+              </div>
+            )}
+            {form.role === "ADMIN" && (
+              <div style={{ marginTop: 10, padding: "10px 14px", borderRadius: 10, background: "#fff7ed", border: "1px solid #fdba74", fontSize: 12, color: "#9a3412" }}>
+                Chế độ này chỉ dùng để <strong>khởi tạo admin đầu tiên</strong>. Bạn phải có mã bootstrap admin từ cấu hình hệ thống.
               </div>
             )}
           </FadeField>
@@ -222,13 +238,19 @@ export default function RegisterForm() {
               value={form.password} onChange={e => set("password", e.target.value)} />
           </FadeField>
 
-          {/* GIÁO VIÊN: nhập mã kích hoạt từ admin */}
-          {form.role === "TEACHER" && (
-            <FadeField label="Mã kích hoạt" required delay={230} visible={vis}
-              hint="Mã do admin cung cấp — liên hệ quản trị viên nếu chưa có">
+          {(["TEACHER", "ADMIN"] as const).includes(form.role as "TEACHER" | "ADMIN") && (
+            <FadeField
+              label={form.role === "ADMIN" ? "Mã khởi tạo admin" : "Mã kích hoạt"}
+              required
+              delay={230}
+              visible={vis}
+              hint={form.role === "ADMIN"
+                ? "Mã bí mật cấu hình trên Vercel để tạo admin đầu tiên"
+                : "Mã do admin cung cấp — liên hệ quản trị viên nếu chưa có"}
+            >
               <input className="ps-inp"
                 style={{ ...inp, fontFamily: "monospace", letterSpacing: "0.12em", fontWeight: 700, fontSize: 16 }}
-                placeholder="VD: ACTIVE-2026-XXXX"
+                placeholder={form.role === "ADMIN" ? "VD: ADMIN-BOOTSTRAP-2026" : "VD: ACTIVE-2026-XXXX"}
                 value={form.activationCode}
                 onChange={e => set("activationCode", e.target.value.toUpperCase())} />
             </FadeField>
@@ -236,7 +258,7 @@ export default function RegisterForm() {
         </>)}
 
         {/* STEP 2: School + level + subjects / class */}
-        {step === 2 && (<>
+        {step === 2 && !isAdminRole && (<>
           <FadeField label="Trường học" required visible={vis}>
             <div style={{ position: "relative" }}>
               <input className="ps-inp" style={inp}
@@ -322,7 +344,7 @@ export default function RegisterForm() {
               XÁC NHẬN THÔNG TIN
             </div>
             {([
-              ["Vai trò", form.role === "TEACHER" ? "Giáo viên" : "Học sinh"],
+              ["Vai trò", form.role === "TEACHER" ? "Giáo viên" : form.role === "STUDENT" ? "Học sinh" : "Quản trị"],
               ["Họ tên", form.name],
               ["Email", form.email],
               ...(form.role === "TEACHER"
@@ -353,12 +375,12 @@ export default function RegisterForm() {
             ← Quay lại
           </button>
         )}
-        {step < 2 ? (
+        {step < stepLabels.length ? (
           <button type="button" onClick={goNext} style={{
             flex: 2, padding: "12px 0", borderRadius: 10, fontSize: 14, fontWeight: 700,
             background: B, color: "white", border: "none", cursor: "pointer",
           }}>
-            Tiếp theo →
+            {isAdminRole ? "Tạo admin" : "Tiếp theo →"}
           </button>
         ) : (
           <button type="button" onClick={handleSubmit} disabled={loading} style={{
