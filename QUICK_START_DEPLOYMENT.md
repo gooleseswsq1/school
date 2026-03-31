@@ -17,7 +17,8 @@
 ### 2️⃣ Setup Vercel (10 phút)
 ```bash
 1. https://vercel.com → Sign up with GitHub
-2. Add project → Select your repo
+2. Add project → Select your repo: gooleseswsq1/school
+   Link: https://github.com/gooleseswsq1/school
 3. Settings → Environment Variables
 4. Add: DATABASE_URL=[string từ bước 1]
 5. Add: JWT_SECRET=[generate bằng PowerShell dưới]
