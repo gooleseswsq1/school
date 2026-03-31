@@ -52,21 +52,8 @@ export default function InlineContentRenderer({
     });
   }
   
-  // If squares remain (no inline images or more squares than images), 
-  // replace with a more informative placeholder
-  if (normalizedContent.includes("□")) {
-    // Count consecutive squares and replace with numbered placeholders
-    let squareCount = 0;
-    normalizedContent = normalizedContent.replace(/□+/g, (match) => {
-      if (match.length === 1) {
-        squareCount++;
-        return `[CN${squareCount}]`;
-      }
-      // Multiple consecutive squares
-      squareCount++;
-      return `[CN${squareCount}]`;
-    });
-  }
+  // Keep remaining square placeholders unchanged when no inline image is available.
+  // This avoids hiding content with synthetic [CNx] tokens.
 
   // If no inline image markers, delegate entirely to LaTeXRenderer
   if (!normalizedContent.includes("{{INLINE_IMG:")) {

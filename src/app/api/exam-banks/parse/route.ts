@@ -567,16 +567,14 @@ export async function POST(request: NextRequest) {
             return ` ${latex} `;
           }
 
-          if (formulaIndices.has(imgIdx)) {
-            // Formula (was WMF/MathType) → inline with text
-            const idx = inlineImages.length;
-            inlineImages.push(src);
-            return `{{INLINE_IMG:${idx}}}`;
-          } else {
-            // Illustration (original PNG/JPEG) → collect for block display
-            if (!blockImages.includes(src)) blockImages.push(src);
-            return ''; // Remove marker from text
+          // Keep all referenced images inline so formula placeholders are never dropped.
+          // For non-formula images, we also keep block display as a secondary preview.
+          const idx = inlineImages.length;
+          inlineImages.push(src);
+          if (!formulaIndices.has(imgIdx) && !blockImages.includes(src)) {
+            blockImages.push(src);
           }
+          return `{{INLINE_IMG:${idx}}}`;
         }
 
         // Resolve in question text
