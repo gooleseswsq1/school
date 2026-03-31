@@ -88,57 +88,68 @@ export async function extractOleFormulas(buffer: Buffer): Promise<Map<string, Ol
     const zip = new JSZip();
     await zip.loadAsync(buffer);
     
-    // Read document.xml to detect OLE object references
+    // Read document.xml and relationships
     const documentXml = await zip.file('word/document.xml')?.async('string') || '';
-    
-    // Detect OLE objects in document.xml
-    // Patterns: <o:OleObject>, <w:object>, <mc:AlternateContent> with OLE
-    const oleMatches = documentXml.matchAll(/<o:OleObject[^>]*\s+Type="Embed"[^>]*\s+ProgId="([^"]*)"[^>]*\s+ShapeID="([^"]*)"[^>]*>/gi);
-    
+    const relsXml = await zip.file('word/_rels/document.xml.rels')?.async('string') || '';
+
+    // Find all <w:object> blocks containing OLE equation objects
+    // Structure: <w:object> contains <o:OLEObject ProgID="..." r:id="rIdN"/>
+    // The r:id attribute (NOT ShapeID) references the embedded binary in relationships
+    const objectPattern = /<w:object\b[^>]*>([\s\S]*?)<\/w:object>/gi;
+    let objectMatch;
     let oleIndex = 0;
-    for (const match of oleMatches) {
-      const progId = match[1];
-      const shapeId = match[2];
-      
-      // Only process MathType objects
-      if (!progId.includes('Equation') && !progId.includes('MathType')) {
-        continue;
-      }
-      
+
+    while ((objectMatch = objectPattern.exec(documentXml)) !== null) {
+      const blockContent = objectMatch[1];
+
+      // Find the <o:OLEObject> tag with equation ProgID
+      const oleTagMatch = blockContent.match(/<o:OLEObject\b([^>]*)>/i);
+      if (!oleTagMatch) continue;
+
+      const oleAttrs = oleTagMatch[1];
+      const progIdMatch = oleAttrs.match(/ProgID="([^"]*)"/i);
+      if (!progIdMatch) continue;
+
+      const progId = progIdMatch[1];
+      if (!progId.includes('Equation') && !progId.includes('MathType')) continue;
+
+      // Get the relationship ID from r:id attribute (correct attribute, not ShapeID)
+      const rIdMatch = oleAttrs.match(/r:id="([^"]*)"/i);
+      if (!rIdMatch) continue;
+
+      const rId = rIdMatch[1];
       const formulaId = `ole_${oleIndex++}`;
-      
-      // Try to find the corresponding embedding
-      const relationshipId = shapeId; // Often matches the relationship ID
-      
-      // Read relationships to find embeddings
-      const relsXml = await zip.file('word/_rels/document.xml.rels')?.async('string') || '';
-      const embeddingMatch = relsXml.match(new RegExp(`<Relationship[^>]*Id="${relationshipId}"[^>]*Target="([^"]*)"`, 'i'));
-      
-      if (embeddingMatch) {
-        const embeddingPath = `word/${embeddingMatch[1]}`;
-        try {
-          const embeddingData = await zip.file(embeddingPath)?.async('arraybuffer');
-          if (embeddingData) {
-            const embeddingBuffer = Buffer.from(embeddingData);
-            
-            // Extract text from binary
-            const extractedText = extractTextFromOleBinary(embeddingBuffer);
-            
-            // Try to identify if it's LaTeX, MathML, or plain formula
-            let latex = '';
-            let mathml = '';
-            
-            if (extractedText.includes('<')) {
-              // Likely MathML
-              mathml = extractedText;
-            } else if (extractedText.includes('\\')) {
-              // Likely LaTeX
-              latex = extractedText;
-            } else {
-              // Convert to LaTeX
-              latex = simplifyFormulaToLatex(extractedText);
-            }
-            
+
+      // Look up the embedded file path in relationships
+      const relMatch = relsXml.match(
+        new RegExp(`<Relationship[^>]*Id="${rId}"[^>]*Target="([^"]*)"`, 'i')
+      );
+      if (!relMatch) continue;
+
+      const embeddingTarget = relMatch[1];
+      // Target can be relative like "embeddings/oleObject1.bin" or "../embeddings/..."
+      const embeddingPath = embeddingTarget.startsWith('../')
+        ? embeddingTarget.slice(3)
+        : `word/${embeddingTarget}`;
+
+      try {
+        const embeddingData = await zip.file(embeddingPath)?.async('arraybuffer');
+        if (embeddingData) {
+          const embeddingBuffer = Buffer.from(embeddingData);
+          const extractedText = extractTextFromOleBinary(embeddingBuffer);
+
+          let latex = '';
+          let mathml = '';
+
+          if (extractedText.startsWith('<') && extractedText.includes('math')) {
+            mathml = extractedText;
+          } else if (extractedText.includes('\\')) {
+            latex = extractedText;
+          } else if (extractedText.length > 0) {
+            latex = simplifyFormulaToLatex(extractedText);
+          }
+
+          if (latex || mathml) {
             formulas.set(formulaId, {
               id: formulaId,
               content: extractedText,
@@ -146,9 +157,9 @@ export async function extractOleFormulas(buffer: Buffer): Promise<Map<string, Ol
               mathml: mathml || undefined,
             });
           }
-        } catch (err) {
-          console.warn(`[ole-extractor] Failed to extract embedding ${embeddingPath}:`, err);
         }
+      } catch (err) {
+        console.warn(`[ole-extractor] Failed to extract embedding ${embeddingPath}:`, err);
       }
     }
     

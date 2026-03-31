@@ -307,6 +307,44 @@ export async function preprocessDocxMath(buffer: Buffer): Promise<Buffer> {
     // Count math elements for logging
     let mathCount = 0;
     let convertedCount = 0;
+    let oleReplacedCount = 0;
+
+    // ── Pre-pass: handle <w:object> blocks with OLE equation objects ──
+    // MathType and Equation.3 formulas are stored as OLE objects with WMF preview images.
+    // On Vercel (Linux), WMF→PNG conversion is unavailable, so these show as broken placeholders.
+    // Fix: replace the entire w:object with a [[LATEX:...]] text marker, stripping the WMF reference
+    // so Mammoth never sees the binary image.
+    xml = xml.replace(/<w:object\b[^>]*>([\s\S]*?)<\/w:object>/gi, (_match: string, inner: string) => {
+      // Check for OLE equation ProgID (Equation.3, MathType, etc.)
+      const progIdMatch = inner.match(/ProgID="([^"]*)"/i);
+      if (!progIdMatch) return _match;
+      const progId = progIdMatch[1];
+      if (!progId.includes('Equation') && !progId.includes('MathType')) return _match;
+
+      oleReplacedCount++;
+
+      // Try to extract any readable text from w:t elements inside the object
+      // (some Word files do embed a text representation alongside the binary)
+      const wtContents: string[] = [];
+      const wtRegex = /<w:t[^>]*>([^<]+)<\/w:t>/gi;
+      let wtMatch;
+      while ((wtMatch = wtRegex.exec(inner)) !== null) {
+        const t = wtMatch[1].trim();
+        if (t) wtContents.push(t);
+      }
+      const formulaText = wtContents.join(' ').trim();
+
+      // Build LaTeX: use extracted text if available, otherwise show a placeholder square
+      const latexContent = formulaText.length > 0
+        ? `\\text{${formulaText.replace(/[{}\\]/g, '\\$&')}}`
+        : `\\square`;
+
+      return `<w:r><w:t xml:space="preserve"> [[LATEX:$${latexContent}$]] </w:t></w:r>`;
+    });
+
+    if (oleReplacedCount > 0) {
+      console.log(`[omml-to-latex] Replaced ${oleReplacedCount} OLE equation objects (MathType/Equation.3) with LaTeX markers`);
+    }
 
     // ── First: extract OMML from <mc:AlternateContent> blocks ──
     // MathType and Word sometimes wrap math in AlternateContent with
@@ -369,7 +407,7 @@ export async function preprocessDocxMath(buffer: Buffer): Promise<Buffer> {
       console.log(`[omml-to-latex] No OMML math found in document.xml.${hasOle ? ' Document contains OLE objects (MathType).' : ''}${hasWmf ? ' WMF images detected — will convert via GDI+/LibreOffice.' : ''}`);
     }
 
-    if (convertedCount === 0) {
+    if (convertedCount === 0 && oleReplacedCount === 0) {
       return buffer; // no changes, return original
     }
 

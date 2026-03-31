@@ -545,6 +545,15 @@ export async function POST(request: NextRequest) {
           const src = imageMap.get(imgIdx);
           if (!src) return '';
 
+          // Check if OLE extractor replaced this entry with a [[LATEX:...]] marker
+          // (OLE extraction puts LaTeX strings in imageMap instead of base64 data URIs)
+          const latexMarkerMatch = src.match(/^\[\[LATEX:([\s\S]*)\]\]$/);
+          if (latexMarkerMatch) {
+            // Return LaTeX inline so LaTeXRenderer can render it properly
+            const latex = latexMarkerMatch[1].trim();
+            return ` ${latex} `;
+          }
+
           if (formulaIndices.has(imgIdx)) {
             // Formula (was WMF/MathType) → inline with text
             const idx = inlineImages.length;
