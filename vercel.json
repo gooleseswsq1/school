@@ -4,7 +4,6 @@
   "devCommand": "next dev",
   "installCommand": "npm install",
   "framework": "nextjs",
-  "nodeVersion": "20.x",
   "regions": ["sin1"],
   "functions": {
     "api/**/*.ts": {
