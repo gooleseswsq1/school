@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { getAuthUser } from '@/lib/auth-storage';
 import { Loader, Download, ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
