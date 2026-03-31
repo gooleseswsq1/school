@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { getAuthUser } from '@/lib/auth-storage';
 
 /* ─── Types ─────────────────────────────────────────────── */
 type Difficulty = 'EASY' | 'MEDIUM' | 'HARD';
@@ -172,9 +173,8 @@ export default function QuestionBankPage() {
 
   /* ── Boot ── */
   useEffect(() => {
-    const raw = localStorage.getItem('user') || sessionStorage.getItem('user');
-    if (!raw) { router.push('/auth/login'); return; }
-    const u = JSON.parse(raw);
+    const u = getAuthUser();
+    if (!u) { router.push('/auth/login'); return; }
     if (u.role !== 'TEACHER' && u.role !== 'ADMIN') { router.push('/'); return; }
     setUser(u);
     fetchBanks(u.id);

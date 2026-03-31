@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Upload, Check, Save, Eye, Trash2 } from 'lucide-react';
+import { getAuthUser } from '@/lib/auth-storage';
 import LaTeXRenderer from '@/components/latex/LaTeXRenderer';
 import InlineContentRenderer from '@/components/latex/InlineContentRenderer';
 
@@ -369,8 +370,7 @@ export default function ExamCreator({ activeClass, onBack, defaultSubject }: { a
 
   /* ── Tạo đề — thử API, fallback localStorage ─────────── */
   const handleGenerate = async () => {
-    const raw = localStorage.getItem('user') || sessionStorage.getItem('user');
-    const teacher = raw ? JSON.parse(raw) : null;
+    const teacher = getAuthUser();
     const finalQs = questions.map(q => ({ ...q, answer: manualAnswers[q.id] ?? q.answer }));
 
     // Validate: all non-essay questions must have answers
@@ -408,8 +408,7 @@ export default function ExamCreator({ activeClass, onBack, defaultSubject }: { a
   /* ── Phát hành ─────────────────────────────────────────── */
   const handlePublish = async () => {
     setIsPublishing(true);
-    const raw = localStorage.getItem('user') || sessionStorage.getItem('user');
-    const teacher = raw ? JSON.parse(raw) : null;
+    const teacher = getAuthUser();
 
     try {
       const closeAt = new Date(Date.now() + cfg.deadlineDays * 86_400_000).toISOString();

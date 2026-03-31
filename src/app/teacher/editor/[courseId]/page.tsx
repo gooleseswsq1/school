@@ -3,6 +3,7 @@
 import { useParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import PageEditor from "@/components/editor/PageEditor";
+import { getAuthUser } from "@/lib/auth-storage";
 import { Loader } from "lucide-react";
 
 function EditorContent() {
@@ -11,15 +12,10 @@ function EditorContent() {
   const [authorId, setAuthorId] = useState<string>("");
 
   useEffect(() => {
-    // Get logged-in user from localStorage/sessionStorage
-    const raw = localStorage.getItem("user") || sessionStorage.getItem("user");
-    if (raw) {
-      try {
-        const user = JSON.parse(raw);
-        setAuthorId(user.id);
-      } catch (e) {
-        console.error("Error parsing user data:", e);
-      }
+    // Get logged-in user using new persistent auth storage
+    const user = getAuthUser();
+    if (user) {
+      setAuthorId(user.id);
     }
   }, []);
 
