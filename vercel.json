@@ -5,6 +5,11 @@
   "installCommand": "npm install",
   "framework": "nextjs",
   "regions": ["sin1"],
+  "functions": {
+    "src/app/api/**/*": {
+      "maxDuration": 60
+    }
+  },
   "headers": [
     {
       "source": "/api/:path*",

@@ -3,6 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 import { existsSync } from "fs";
+import { buildStoragePath, hasSupabaseStorageConfig, uploadBufferToStorage } from "@/lib/supabase-storage";
+
+export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,20 +23,37 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create upload directory if it doesn't exist
-    const uploadsDir = join(process.cwd(), "public/uploads", studentId);
-    if (!existsSync(uploadsDir)) {
-      await mkdir(uploadsDir, { recursive: true });
-    }
-
-    // Save file to disk
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
     const fileName = file.name;
     const timestamp = Date.now();
-    const filePath = join(uploadsDir, `${timestamp}-${fileName}`);
-    
-    await writeFile(filePath, buffer);
+
+    let fileUrl: string;
+
+    if (hasSupabaseStorageConfig()) {
+      // Upload to Supabase Storage
+      const storagePath = buildStoragePath(`submissions/${studentId}`, `${timestamp}-${fileName}`);
+      const uploaded = await uploadBufferToStorage({
+        path: storagePath,
+        buffer,
+        contentType: file.type || "application/octet-stream",
+      });
+      fileUrl = uploaded.publicUrl;
+    } else if (process.env.VERCEL === "1") {
+      return NextResponse.json(
+        { error: "Vercel requires Supabase storage configuration" },
+        { status: 500 }
+      );
+    } else {
+      // Local development fallback
+      const uploadsDir = join(process.cwd(), "public/uploads", studentId);
+      if (!existsSync(uploadsDir)) {
+        await mkdir(uploadsDir, { recursive: true });
+      }
+      const filePath = join(uploadsDir, `${timestamp}-${fileName}`);
+      await writeFile(filePath, buffer);
+      fileUrl = `/uploads/${studentId}/${timestamp}-${fileName}`;
+    }
 
     // Create or get student user
     const student = await prisma.user.upsert({
@@ -113,7 +133,7 @@ export async function POST(request: NextRequest) {
       data: {
         title,
         description: description || null,
-        fileUrl: `/uploads/${studentId}/${timestamp}-${fileName}`,
+        fileUrl,
         fileType: documentType,
         fileSize,
         authorId: student.id,

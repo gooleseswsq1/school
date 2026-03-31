@@ -16,6 +16,7 @@ const nextConfig = {
       "./md_fil/**",
       "./prisma/dev.db",
       "./prisma/prisma/**",
+      "./public/uploads/**",
       "./public/videos/**",
       "./public/interactive/**",
       "./response*.json",

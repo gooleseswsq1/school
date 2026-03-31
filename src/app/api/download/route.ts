@@ -21,6 +21,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // If fileUrl is an absolute URL (Supabase), redirect to it
+    if (fileUrl.startsWith("http://") || fileUrl.startsWith("https://")) {
+      return NextResponse.redirect(fileUrl);
+    }
+
     // Normalize the path - remove leading slashes and decode
     if (fileUrl.startsWith("/")) {
       fileUrl = fileUrl.substring(1);

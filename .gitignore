@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# uploaded files (use Supabase storage in production)
+public/uploads/*
+public/videos/*
+public/interactive/*
+tmp/

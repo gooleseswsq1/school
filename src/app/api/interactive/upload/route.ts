@@ -10,6 +10,8 @@ import {
   uploadBufferToStorage,
 } from '@/lib/supabase-storage';
 
+export const maxDuration = 60;
+
 // Sanitize filename: remove path traversal, special chars, only allow safe names
 function sanitizeFilename(name: string): string | null {
   // Remove any path components that could escape the target directory

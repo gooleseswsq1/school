@@ -4,8 +4,25 @@ import { join } from "path";
 import { existsSync } from "fs";
 import { buildStoragePath, hasSupabaseStorageConfig, uploadBufferToStorage } from "@/lib/supabase-storage";
 
+// On Vercel, serverless functions have a 4.5MB body limit.
+// Large videos must use presigned upload via /api/storage/sign-upload.
+// This route handles small videos or acts as a fallback for local dev.
+export const maxDuration = 60;
+
 export async function POST(request: NextRequest) {
   try {
+    // Check content-length header early to give better error message
+    const contentLength = parseInt(request.headers.get("content-length") || "0", 10);
+    if (process.env.VERCEL === "1" && contentLength > 4 * 1024 * 1024) {
+      return NextResponse.json(
+        {
+          error: "Video quá lớn cho upload trực tiếp trên Vercel (giới hạn 4.5MB). Sử dụng presigned upload qua /api/storage/sign-upload.",
+          usePresignedUpload: true,
+        },
+        { status: 413 }
+      );
+    }
+
     const formData = await request.formData();
     const file = formData.get("file") as File;
 
@@ -24,11 +41,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate file size (100MB max)
-    const maxSize = 100 * 1024 * 1024;
+    // Validate file size (50MB max)
+    const maxSize = 50 * 1024 * 1024;
     if (file.size > maxSize) {
       return NextResponse.json(
-        { error: "File size must be less than 100MB" },
+        { error: "File size must be less than 50MB" },
         { status: 400 }
       );
     }

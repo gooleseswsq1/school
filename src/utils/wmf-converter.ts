@@ -1,6 +1,8 @@
 // src/utils/wmf-converter.ts
 // WMF (Windows Metafile) → PNG conversion pipeline
 // Used during Word file import to convert math equations to displayable format
+// On Vercel: uses placeholder SVG (WMF conversion not available on Linux serverless)
+// On Windows dev: uses GDI+ (PowerShell) for WMF→PNG conversion
 
 import { writeFile, unlink, readFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
@@ -13,10 +15,10 @@ import { randomBytes } from 'crypto';
 const execFileAsync = promisify(execFile);
 const execAsync = promisify(exec);
 
-const PERSISTENT_UPLOAD_DIR = join(process.cwd(), 'public', 'uploads', 'exam-images');
+const IS_VERCEL = process.env.VERCEL === '1';
 const TEMP_UPLOAD_DIR = join(os.tmpdir(), 'pentaschool-exam-images');
 
-/** Ensure the upload directory exists */
+/** Ensure a directory exists */
 async function ensureDir(dir: string): Promise<void> {
   if (!existsSync(dir)) {
     await mkdir(dir, { recursive: true });
@@ -31,6 +33,8 @@ async function ensureUploadDir(): Promise<void> {
  * Check if LibreOffice is available on the system
  */
 async function findLibreOffice(): Promise<string | null> {
+  if (IS_VERCEL) return null; // LibreOffice not available on Vercel
+
   const candidates = [
     'C:\\Program Files\\LibreOffice\\program\\soffice.exe',
     'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe',
@@ -43,7 +47,6 @@ async function findLibreOffice(): Promise<string | null> {
     if (existsSync(path)) return path;
   }
 
-  // Try PATH
   try {
     await execFileAsync('soffice', ['--version']);
     return 'soffice';
@@ -65,11 +68,9 @@ async function convertWmfWithLibreOffice(
   const tmpPng = join(TEMP_UPLOAD_DIR, `tmp_${id}.png`);
 
   try {
-    // Extract base64 data (strip data URI prefix)
     const base64Data = wmfBase64.replace(/^data:image\/[^;]+;base64,/, '');
     await writeFile(tmpWmf, Buffer.from(base64Data, 'base64'));
 
-    // Convert using LibreOffice headless
     await execFileAsync(libreOfficePath, [
       '--headless',
       '--convert-to', 'png',
@@ -77,7 +78,6 @@ async function convertWmfWithLibreOffice(
       tmpWmf,
     ], { timeout: 15000 });
 
-    // Read converted PNG
     if (existsSync(tmpPng)) {
       const pngBuffer = await readFile(tmpPng);
       const pngBase64 = `data:image/png;base64,${pngBuffer.toString('base64')}`;
@@ -88,26 +88,9 @@ async function convertWmfWithLibreOffice(
     console.warn('[wmf-converter] LibreOffice conversion failed:', err);
     return null;
   } finally {
-    // Cleanup temp files
     try { await unlink(tmpWmf); } catch {}
     try { await unlink(tmpPng); } catch {}
   }
-}
-
-/**
- * Save a WMF image as a file for later manual conversion
- * Returns a URL path relative to /public
- */
-async function saveWmfForLater(wmfBase64: string): Promise<string> {
-  await ensureDir(PERSISTENT_UPLOAD_DIR);
-  const id = randomBytes(8).toString('hex');
-  const filename = `wmf_${id}.wmf`;
-  const filepath = join(PERSISTENT_UPLOAD_DIR, filename);
-
-  const base64Data = wmfBase64.replace(/^data:image\/[^;]+;base64,/, '');
-  await writeFile(filepath, Buffer.from(base64Data, 'base64'));
-
-  return `/uploads/exam-images/${filename}`;
 }
 
 /**
@@ -115,7 +98,6 @@ async function saveWmfForLater(wmfBase64: string): Promise<string> {
  * This works on Windows without needing LibreOffice.
  */
 async function convertWmfWithGdiPlus(wmfBase64: string): Promise<string | null> {
-  // Only works on Windows
   if (process.platform !== 'win32') return null;
 
   await ensureUploadDir();
@@ -127,7 +109,6 @@ async function convertWmfWithGdiPlus(wmfBase64: string): Promise<string | null> 
     const base64Data = wmfBase64.replace(/^data:image\/[^;]+;base64,/, '');
     await writeFile(tmpWmf, Buffer.from(base64Data, 'base64'));
 
-    // PowerShell script using System.Drawing to convert WMF → PNG
     const psScript = `
 Add-Type -AssemblyName System.Drawing
 try {
@@ -161,8 +142,7 @@ try {
       return `data:image/png;base64,${pngBuffer.toString('base64')}`;
     }
     return null;
-  } catch (err) {
-    // Silently fail — will use placeholder
+  } catch {
     return null;
   } finally {
     try { await unlink(tmpWmf); } catch {}
@@ -173,6 +153,7 @@ try {
 /**
  * Batch convert multiple WMF images to PNG using a single PowerShell invocation.
  * Much faster than converting one at a time (avoids spawning 100+ processes).
+ * On Vercel/Linux: returns empty map (GDI+ not available).
  * Returns a Map from index → PNG base64 data URI (only for successful conversions).
  */
 export async function batchConvertWmfImages(
@@ -185,7 +166,6 @@ export async function batchConvertWmfImages(
   await ensureUploadDir();
   const batchId = randomBytes(6).toString('hex');
 
-  // Write all WMF files to disk
   const entries: { index: number; wmfPath: string; pngPath: string }[] = [];
   for (const item of wmfImages) {
     const wmfPath = join(TEMP_UPLOAD_DIR, `batch_${batchId}_${item.index}.wmf`);
@@ -196,7 +176,6 @@ export async function batchConvertWmfImages(
   }
 
   try {
-    // Build a PowerShell script that converts ALL WMF files in one process
     const conversions = entries.map(e => {
       const wmf = e.wmfPath.replace(/\\/g, '\\\\');
       const png = e.pngPath.replace(/\\/g, '\\\\');
@@ -226,7 +205,6 @@ try {
       { timeout: Math.max(30000, wmfImages.length * 500) }
     );
 
-    // Read converted PNGs
     for (const e of entries) {
       if (existsSync(e.pngPath)) {
         const pngBuffer = await readFile(e.pngPath);
@@ -238,12 +216,10 @@ try {
 
     console.log(`[wmf-converter] Batch GDI+ conversion: ${result.size}/${wmfImages.length} successful`);
 
-    // Cleanup script
     try { await unlink(scriptPath); } catch {}
   } catch (err) {
     console.warn('[wmf-converter] Batch GDI+ conversion failed:', err);
   } finally {
-    // Cleanup all temp files
     for (const e of entries) {
       try { await unlink(e.wmfPath); } catch {}
       try { await unlink(e.pngPath); } catch {}
@@ -254,8 +230,8 @@ try {
 }
 
 /**
- * Create a placeholder PNG with text indicating a formula that needs conversion
- * Returns a base64 data URI of a simple SVG rendered as data URI
+ * Create a placeholder SVG with text indicating a formula
+ * Returns a base64 data URI
  */
 function createPlaceholderSvg(index: number): string {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="32" viewBox="0 0 200 32">
@@ -274,8 +250,6 @@ function createPlaceholderSvg(index: number): string {
 export interface WmfConversionResult {
   /** The displayable image (PNG base64 or placeholder SVG) */
   displaySrc: string;
-  /** Original WMF saved to disk (URL path) for later conversion */
-  wmfPath?: string;
   /** Whether actual conversion succeeded */
   converted: boolean;
 }
@@ -285,12 +259,21 @@ let libreOfficeCache: string | null | undefined;
 
 /**
  * Convert a WMF data URI to a displayable format.
- * Tries: LibreOffice → Windows GDI+ → placeholder SVG.
+ * On Vercel: skips all external tool conversion, uses placeholder SVG.
+ * On dev: tries LibreOffice → Windows GDI+ → placeholder SVG.
  */
 export async function convertWmfImage(
   wmfBase64: string,
   imageIndex: number
 ): Promise<WmfConversionResult> {
+  // On Vercel: no LibreOffice/GDI+ available, go straight to placeholder
+  if (IS_VERCEL) {
+    return {
+      displaySrc: createPlaceholderSvg(imageIndex),
+      converted: false,
+    };
+  }
+
   // Check LibreOffice availability (cached)
   if (libreOfficeCache === undefined) {
     libreOfficeCache = await findLibreOffice();
@@ -301,34 +284,25 @@ export async function convertWmfImage(
     }
   }
 
-  // Save original WMF for later manual conversion
-  let wmfPath: string | undefined;
-  try {
-    wmfPath = await saveWmfForLater(wmfBase64);
-  } catch (err) {
-    console.warn('[wmf-converter] Unable to persist original WMF file, continuing with in-memory fallback:', err);
-  }
-
   // Try LibreOffice conversion
   if (libreOfficeCache) {
     const pngBase64 = await convertWmfWithLibreOffice(wmfBase64, libreOfficeCache);
     if (pngBase64) {
-      return { displaySrc: pngBase64, wmfPath, converted: true };
+      return { displaySrc: pngBase64, converted: true };
     }
   }
 
-  // Try Windows GDI+ conversion (System.Drawing via PowerShell)
+  // Try Windows GDI+ conversion
   if (process.platform === 'win32') {
     const pngBase64 = await convertWmfWithGdiPlus(wmfBase64);
     if (pngBase64) {
-      return { displaySrc: pngBase64, wmfPath, converted: true };
+      return { displaySrc: pngBase64, converted: true };
     }
   }
 
   // Fallback: SVG placeholder
   return {
     displaySrc: createPlaceholderSvg(imageIndex),
-    wmfPath,
     converted: false,
   };
 }
