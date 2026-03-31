@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<courseStructure xmlns="https://w3id.org/xapi/profiles/cmi5/v1/CourseStructure.xsd">
+	<course id="ispring://presentations/BF71E124-90D9-4544-A9C8-B04E0F529819">
+		<title>
+			<langstring lang="en-US">L10_C2_B1_BPT bậc nhất 2 ẩn</langstring>
+		</title>
+		<description>
+			<langstring lang="en-US"/>
+		</description>
+	</course>
+	<au id="ispring://presentations/BF71E124-90D9-4544-A9C8-B04E0F529819/presentation" launchMethod="AnyWindow" moveOn="CompletedAndPassed" masteryScore="0.8000">
+		<title>
+			<langstring lang="en-US">L10_C2_B1_BPT bậc nhất 2 ẩn</langstring>
+		</title>
+		<description>
+			<langstring lang="en-US"/>
+		</description>
+		<url>res/index.html</url>
+	</au>
+</courseStructure>

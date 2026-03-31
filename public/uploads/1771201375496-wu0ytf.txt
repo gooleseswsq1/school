@@ -1,0 +1,6 @@
+Tạo một modun run Lất xử lý output của test để đoeeì khiển điều khiển desktopmanager đã được mapping sẳn trong command type và test nhận diên chính xác 
+liên kết các mode sao cho phù hợp với các mapping 
+0 clock trang thái  wake work khi đợi có lệnh wait work thì sẽ ra trang thái mode 3 listening đặc biệt trong test có trạng thái contionous khi nghe lênh
+"continuous_mode_on" giữ nguyên trạng thái mode 3 
+ "continuous_mode_off": quay lại mode 0 và trở về wait word giông logic test . py 
+mode 1 play_last":

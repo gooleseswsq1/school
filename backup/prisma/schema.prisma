@@ -1,0 +1,670 @@
+// Penta School - Prisma Schema
+// Nâng cấp: PostgreSQL + School + Class + PublishMode + ExamBank + Difficulty
+// Cập nhật: March 2026
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN
+  TEACHER
+  STUDENT
+}
+
+enum DocumentType {
+  VIDEO
+  POWERPOINT
+  WORD
+  PDF
+  IMAGE
+  OTHER
+}
+
+enum BlockType {
+  VIDEO
+  DOCUMENT
+  TEXT
+  CONTENT
+  QUIZ
+  CANVA
+  RICH_TEXT
+  EMBED
+}
+
+enum PublishMode {
+  PRIVATE
+  SCHOOL
+  PUBLIC
+}
+
+// ✅ Mới: cấp độ câu hỏi
+enum Difficulty {
+  EASY    // Độ khó 1 — Dễ
+  MEDIUM  // Độ khó 2 — Trung bình
+  HARD    // Độ khó 3 — Khó
+}
+
+// ✅ Mới: loại câu hỏi
+enum QuestionKind {
+  MCQ   // Trắc nghiệm 4 lựa chọn
+  TF    // Đúng / Sai
+  TF4   // 4 ý Đúng/Sai (K12 2025)
+  SAQ   // Trả lời ngắn (chấm tự động)
+  ESSAY // Tự luận
+}
+
+// ✅ Loại kiểm tra (hệ số tính điểm)
+enum ExamKind {
+  ORAL      // Kiểm tra miệng — hệ số 1
+  QUIZ15    // Kiểm tra 15 phút — hệ số 1
+  PERIOD    // Kiểm tra 1 tiết — hệ số 2
+}
+
+// ✅ Mới: trạng thái đề thi
+enum ExamStatus {
+  DRAFT     // Chưa mở
+  OPEN      // Đang mở cho học sinh làm
+  CLOSED    // Đã đóng
+  ARCHIVED  // Lưu trữ
+}
+
+// ─── Models ───────────────────────────────────────────────
+
+model School {
+  id       String  @id @default(cuid())
+  name     String  @unique
+  address  String?
+  province String?
+  district String?
+
+  users    User[]
+  classes  Class[]
+  pages    Page[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([name])
+  @@index([province])
+}
+
+model Class {
+  id       String @id @default(cuid())
+  name     String
+  code     String? @unique  // Class code for student linking
+  grade    Int
+  year     Int
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  schoolId String
+
+  teachers  TeacherClass[]
+  students  StudentTeacher[]
+  pages     Page[]
+  schedules Schedule[]
+
+  @@unique([name, grade, schoolId, year])
+  @@index([schoolId])
+  @@index([grade])
+  @@index([code])
+}
+
+model TeacherClass {
+  teacher    User   @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  teacherId  String
+  class      Class  @relation(fields: [classId], references: [id], onDelete: Cascade)
+  classId    String
+  assignedAt DateTime @default(now())
+
+  @@id([teacherId, classId])
+  @@index([teacherId])
+  @@index([classId])
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String
+  role      UserRole @default(STUDENT)
+  isActive  Boolean  @default(false)
+
+  school    School?  @relation(fields: [schoolId], references: [id], onDelete: SetNull)
+  schoolId  String?
+  grade     Int?
+  className String?
+  subjects  String?
+  level     String?  // cấp độ: "Cơ bản", "Nâng cao", etc.
+
+  // Teacher code - chỉ TEACHER có, vd: "GV-NGUYEN-A1B2"
+  teacherCode String? @unique
+
+  lastLoginAt DateTime? // Thời điểm đăng nhập gần nhất
+
+  teacherClasses TeacherClass[]
+
+  // Student-Teacher relationship
+  joinedTeachers StudentTeacher[] @relation("StudentJoins")   // học sinh join giáo viên
+  students       StudentTeacher[] @relation("TeacherStudents") // giáo viên có học sinh
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  documents        Document[]         @relation("DocumentAuthor")
+  pages            Page[]             @relation("PageAuthor")
+  comments         Comment[]          @relation("AuthorComments")
+  examBanks        ExamBank[]         @relation("BankAuthor")     // ngân hàng đề GV tạo
+  exams            Exam[]             @relation("ExamCreator")    // đề thi GV tạo
+  attempts         StudentExamAttempt[] @relation("StudentAttempts") // bài làm HS
+  libraryFiles     LibraryFile[]      @relation("TeacherLibrary") // thư viện GV
+  libraryComments  LibraryComment[]   @relation("LibraryCommentAuthor")
+  schedules        Schedule[]         @relation("TeacherSchedules")
+  goals            StudentGoal[]      @relation("StudentGoals")
+
+  @@index([email])
+  @@index([role])
+  @@index([isActive])
+  @@index([schoolId])
+  @@index([teacherCode])
+}
+
+model ActivationCode {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  isUsed    Boolean  @default(false)
+  usedBy    String?
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([code])
+  @@index([isUsed])
+  @@index([expiresAt])
+}
+
+model Document {
+  id          String       @id @default(cuid())
+  title       String
+  description String?
+  fileUrl     String
+  fileType    DocumentType
+  fileSize    Int?
+
+  author   User   @relation("DocumentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  authorId String
+
+  score      Int?
+  isAchieved Boolean?
+  status     String   @default("submitted")
+  gradedBy   String?
+  gradedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([authorId])
+  @@index([fileType])
+  @@index([createdAt])
+  @@index([status])
+}
+
+// ─── Exam Bank ────────────────────────────────────────────
+// Mỗi ExamBank tương ứng 1 file Word giáo viên upload.
+// Hệ thống parse file → lưu vào BankQuestion.
+
+model ExamBank {
+  id          String  @id @default(cuid())
+  title       String              // tên ngân hàng (vd: "Vật lý 10 Ch.1–3")
+  subject     String              // môn học
+  grade       Int?                // khối lớp (10, 11, 12)
+  description String?
+  fileUrl     String?             // file Word gốc
+  isActive    Boolean @default(true)
+
+  author   User   @relation("BankAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  authorId String
+
+  questions BankQuestion[]        // câu hỏi trong bank
+  exams     ExamBankRef[]         // đề thi tham chiếu bank này
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([authorId])
+  @@index([subject])
+  @@index([grade])
+}
+
+// Câu hỏi trong ngân hàng đề
+model BankQuestion {
+  id           String       @id @default(cuid())
+  bank         ExamBank     @relation(fields: [bankId], references: [id], onDelete: Cascade)
+  bankId       String
+
+  num          Int                // số thứ tự trong file gốc
+  text         String             // nội dung câu hỏi (có thể có LaTeX: $...$)
+  kind         QuestionKind       // MCQ | TF | ESSAY
+  difficulty   Difficulty         // EASY | MEDIUM | HARD
+  difficultyNum Int  @default(1)  // 1, 2, 3 (giữ lại để tương thích)
+  chapter      String?            // chương (vd: "1", "2")
+  points       Float  @default(1) // điểm mặc định
+
+  // Đáp án MCQ (JSON array): ["A. ...", "B. ...", "C. ...", "D. ..."]
+  options      String?
+  answer       String             // "A" hoặc "Đúng/Sai" hoặc gợi ý tự luận
+  explanation  String?            // giải thích đáp án
+
+  // TF4: sub-items JSON: [{label:"a", text:"...", answer:"Đúng"}]
+  subItems        String?
+  // SAQ: sai số cho phép khi chấm số
+  answerTolerance Float?   @default(0)
+  // Image tracking: JSON {"0": "url", "1": "url"}
+  imageRefs       String?
+
+  // Dùng trong các đề thi
+  examItems    ExamItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([bankId])
+  @@index([difficulty])
+  @@index([kind])
+  @@index([chapter])
+}
+
+// ─── Exam (Đề thi) ────────────────────────────────────────
+// Giáo viên tạo đề từ ngân hàng, giao cho lớp.
+
+model Exam {
+  id          String     @id @default(cuid())
+  title       String
+  subject     String
+  className   String?    // tên lớp giao đề
+  duration    Int        @default(45)   // phút
+  status      ExamStatus @default(DRAFT)
+  examKind    ExamKind   @default(PERIOD)   // loại kiểm tra: miệng / 15p / 1 tiết
+
+  openAt      DateTime?  // thời gian mở
+  closeAt     DateTime?  // thời gian đóng
+  reviewUnlocksAt DateTime? // mở xem lại sau N ngày (mặc định closeAt + 7 ngày)
+
+  // Config trộn đề
+  easyCount   Int  @default(5)
+  mediumCount Int  @default(5)
+  hardCount   Int  @default(3)
+  variantCount Int @default(1)  // số mã đề
+  shuffleOptions Boolean @default(true)
+
+  creator   User   @relation("ExamCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  creatorId String
+
+  banks    ExamBankRef[]  // ngân hàng được dùng
+  items    ExamItem[]     // câu hỏi trong đề (snapshot)
+  attempts StudentExamAttempt[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([creatorId])
+  @@index([status])
+  @@index([subject])
+  @@index([className])
+}
+
+// Bảng nhiều-nhiều Exam ↔ ExamBank
+model ExamBankRef {
+  exam   Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  examId String
+  bank   ExamBank @relation(fields: [bankId], references: [id], onDelete: Cascade)
+  bankId String
+
+  @@id([examId, bankId])
+}
+
+// Câu hỏi được chọn vào đề (snapshot từ BankQuestion tại thời điểm tạo đề)
+model ExamItem {
+  id       String @id @default(cuid())
+  exam     Exam   @relation(fields: [examId], references: [id], onDelete: Cascade)
+  examId   String
+  order    Int
+
+  question   BankQuestion? @relation(fields: [questionId], references: [id])
+  questionId String?
+
+  // Snapshot để đề không thay đổi sau khi xuất bản
+  textSnapshot    String?
+  optionsSnapshot String?
+  answerSnapshot  String?
+  kindSnapshot    String?   // "MCQ" | "TF" | "TF4" | "SAQ" | "ESSAY" — loại câu hỏi
+  pointsSnapshot  Float @default(1)
+
+  // TF4 sub-items snapshot (clone từ BankQuestion.subItems)
+  subItemsSnapshot  String?
+  // SAQ tolerance snapshot
+  toleranceSnapshot Float?   @default(0)
+
+  @@index([examId])
+  @@index([questionId])
+}
+
+// ─── Student Exam Attempt ─────────────────────────────────
+// Học sinh làm bài
+
+model StudentExamAttempt {
+  id         String @id @default(cuid())
+  exam       Exam   @relation(fields: [examId], references: [id], onDelete: Cascade)
+  examId     String
+  student    User   @relation("StudentAttempts", fields: [studentId], references: [id], onDelete: Cascade)
+  studentId  String
+
+  startedAt  DateTime @default(now())
+  submittedAt DateTime?
+  timeSpent  Int?       // giây
+
+  // Câu trả lời JSON: { "itemId": "A", ... }
+  answers    String?
+  score      Float?
+  maxScore   Float?
+  isPassed   Boolean?
+
+  // Phản hồi tự luận từ GV
+  teacherFeedback String?
+  gradedBy        String?
+  gradedAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([examId, studentId])  // mỗi HS chỉ làm 1 lần
+  @@index([examId])
+  @@index([studentId])
+  @@index([submittedAt])
+}
+
+// ─── Page / Lecture ───────────────────────────────────────
+
+model Page {
+  id          String  @id @default(cuid())
+  title       String
+  slug        String
+  description String?
+  parentId    String?
+  parent      Page?   @relation("PageHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Page[]  @relation("PageHierarchy")
+
+  author   User   @relation("PageAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  authorId String
+
+  class    Class?  @relation(fields: [classId], references: [id], onDelete: SetNull)
+  classId  String?
+
+  blocks PageBlock[] @relation("PageBlocks")
+  order  Int         @default(0)
+
+  isPublished Boolean     @default(false)
+  publishMode PublishMode @default(PRIVATE)
+
+  school   School? @relation(fields: [schoolId], references: [id], onDelete: SetNull)
+  schoolId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([slug, authorId])
+  @@index([authorId])
+  @@index([parentId])
+  @@index([isPublished])
+  @@index([publishMode])
+  @@index([schoolId])
+  @@index([classId])
+  @@index([createdAt])
+}
+
+model PageBlock {
+  id     String    @id @default(cuid())
+  page   Page      @relation("PageBlocks", fields: [pageId], references: [id], onDelete: Cascade)
+  pageId String
+  type   BlockType
+  order  Int       @default(0)
+
+  videoUrl     String?
+  videoType    String?
+  poster       String?
+  interactions String?
+
+  documents    PageDocument[] @relation("BlockDocuments")
+  contentItems ContentItem[]  @relation("BlockContentItems")
+  quizzes      Quiz[]         @relation("BlockQuiz")
+
+  content    String?
+  slidesData String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([pageId])
+  @@index([type])
+  @@index([order])
+}
+
+model PageDocument {
+  id      String    @id @default(cuid())
+  block   PageBlock @relation("BlockDocuments", fields: [blockId], references: [id], onDelete: Cascade)
+  blockId String
+
+  title    String
+  fileUrl  String
+  fileType String
+  fileSize Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([blockId])
+}
+
+model ContentItem {
+  id      String    @id @default(cuid())
+  block   PageBlock @relation("BlockContentItems", fields: [blockId], references: [id], onDelete: Cascade)
+  blockId String
+
+  title        String
+  image        String?
+  shortcutCode String?
+  shortcutUrl  String?
+  order        Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([blockId])
+  @@index([shortcutCode])
+}
+
+model Quiz {
+  id      String    @id @default(cuid())
+  block   PageBlock @relation("BlockQuiz", fields: [blockId], references: [id], onDelete: Cascade)
+  blockId String
+
+  title     String?
+  order     Int       @default(0)
+  questions Question[] @relation("QuizQuestions")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([blockId])
+  @@index([blockId, order])
+}
+
+model Question {
+  id           String   @id @default(cuid())
+  quiz         Quiz     @relation("QuizQuestions", fields: [quizId], references: [id], onDelete: Cascade)
+  quizId       String
+  questionText String
+  questionType String   @default("multiple")
+  order        Int      @default(0)
+
+  options QuestionOption[] @relation("QuestionOptions")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([quizId])
+  @@index([order])
+}
+
+model QuestionOption {
+  id         String   @id @default(cuid())
+  question   Question @relation("QuestionOptions", fields: [questionId], references: [id], onDelete: Cascade)
+  questionId String
+
+  optionText String
+  isCorrect  Boolean @default(false)
+  order      Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([questionId])
+  @@index([order])
+}
+
+model Comment {
+  id      String @id @default(cuid())
+  blockId String
+
+  author   User   @relation("AuthorComments", fields: [authorId], references: [id], onDelete: Cascade)
+  authorId String
+
+  replyTo          Comment?  @relation("CommentReplies", fields: [replyToCommentId], references: [id], onDelete: Cascade)
+  replyToCommentId String?
+  replies          Comment[] @relation("CommentReplies")
+
+  content   String
+  createdAt DateTime @default(now())
+  expiresAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([blockId])
+  @@index([authorId])
+  @@index([replyToCommentId])
+  @@index([createdAt])
+  @@index([expiresAt])
+}
+
+// ─── Student-Teacher Relationship ─────────────────────────
+// Học sinh nhập mã giáo viên hoặc mã lớp → liên kết → thấy tài liệu + bài giảng
+
+model StudentTeacher {
+  id         String   @id @default(cuid())
+
+  student    User     @relation("StudentJoins",   fields: [studentId], references: [id], onDelete: Cascade)
+  studentId  String
+
+  teacher    User     @relation("TeacherStudents", fields: [teacherId], references: [id], onDelete: Cascade)
+  teacherId  String
+
+  class      Class?   @relation(fields: [classId], references: [id], onDelete: SetNull)
+  classId    String?  // Optional: if linked via class code
+
+  status           String    @default("pending")  // "pending" | "accepted" | "rejected"
+  requestExpiresAt DateTime? // tự động xóa yêu cầu quá 1 ngày
+  joinedAt         DateTime  @default(now())
+
+  @@unique([studentId, teacherId])
+  @@index([teacherId, status])
+  @@index([studentId])
+  @@index([classId])
+  @@index([requestExpiresAt])
+}
+
+// ─── Library file sharing ─────────────────────────────────────
+model LibraryFile {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  fileUrl     String   // URL hoặc path file (base64 data URL cho storage đơn giản)
+  fileType    String   // "pdf" | "word" | "image"
+  fileName    String   // tên gốc của file
+  fileSize    Int?     // bytes
+
+  teacher     User     @relation("TeacherLibrary", fields: [teacherId], references: [id], onDelete: Cascade)
+  teacherId   String
+
+  comments    LibraryComment[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([teacherId])
+  @@index([createdAt])
+}
+
+model LibraryComment {
+  id        String      @id @default(cuid())
+  content   String
+  file      LibraryFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  fileId    String
+  author    User        @relation("LibraryCommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  authorId  String
+  createdAt DateTime    @default(now())
+
+  @@index([fileId])
+  @@index([authorId])
+}
+
+// ─── Schedule (Lịch học) ──────────────────────────────────
+// Giáo viên tạo lịch cho lớp, học sinh xem lịch qua liên kết
+
+model Schedule {
+  id          String   @id @default(cuid())
+  title       String
+  type        String   @default("lecture")  // "lecture" | "exam" | "assignment"
+  subject     String?
+  description String?
+  date        DateTime
+  duration    Int      @default(45) // phút
+
+  teacher   User   @relation("TeacherSchedules", fields: [teacherId], references: [id], onDelete: Cascade)
+  teacherId String
+
+  class     Class? @relation(fields: [classId], references: [id], onDelete: SetNull)
+  classId   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([teacherId])
+  @@index([classId])
+  @@index([date])
+}
+
+// ─── Student Goal (Mục tiêu học tập) ─────────────────────
+// Học sinh tự đặt mục tiêu và theo dõi tiến độ
+
+model StudentGoal {
+  id       String   @id @default(cuid())
+  title    String
+  target   Float
+  current  Float    @default(0)
+  unit     String   @default("bài")
+  deadline DateTime?
+  color    String   @default("#3B82F6")
+
+  student   User   @relation("StudentGoals", fields: [studentId], references: [id], onDelete: Cascade)
+  studentId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([studentId])
+}

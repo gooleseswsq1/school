@@ -1,15 +1,15 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), monospace;
+}
 
 :root {
   --background: #ffffff;
   --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -22,5 +22,382 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* ─── Flashcard Animations ────────────────────────────────────────── */
+@keyframes flip {
+  0% {
+    transform: rotateY(0deg);
+  }
+  100% {
+    transform: rotateY(180deg);
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(-5%);
+    animation-timing-function: cubic-bezier(0.8, 0, 1, 1);
+  }
+  50% {
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
+  }
+}
+
+@keyframes shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  10%, 30%, 50%, 70%, 90% {
+    transform: translateX(-5px);
+  }
+  20%, 40%, 60%, 80% {
+    transform: translateX(5px);
+  }
+}
+
+/* ─── Flashcard Styles ────────────────────────────────────────────── */
+.flashcard-container {
+  perspective: 1000px;
+}
+
+.flashcard-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transition: transform 0.6s;
+  transform-style: preserve-3d;
+}
+
+.flashcard-flipped .flashcard-inner {
+  transform: rotateY(180deg);
+}
+
+.flashcard-face {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+.flashcard-back {
+  transform: rotateY(180deg);
+}
+
+/* ─── Rich Text Editor Styles ─────────────────────────────────────── */
+.rich-text-editor {
+  min-height: 150px;
+  outline: none;
+}
+
+.rich-text-editor:focus {
+  outline: none;
+}
+
+.rich-text-editor p {
+  margin-bottom: 0.5em;
+}
+
+.rich-text-editor h1,
+.rich-text-editor h2,
+.rich-text-editor h3 {
+  font-weight: bold;
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+}
+
+.rich-text-editor h1 {
+  font-size: 2em;
+}
+
+.rich-text-editor h2 {
+  font-size: 1.5em;
+}
+
+.rich-text-editor h3 {
+  font-size: 1.17em;
+}
+
+.rich-text-editor ul,
+.rich-text-editor ol {
+  margin-left: 1.5em;
+  margin-bottom: 0.5em;
+}
+
+.rich-text-editor blockquote {
+  border-left: 4px solid #e5e7eb;
+  padding-left: 1em;
+  margin-left: 0;
+  color: #6b7280;
+  font-style: italic;
+}
+
+.rich-text-editor pre {
+  background: #1f2937;
+  color: #f9fafb;
+  padding: 1em;
+  border-radius: 0.5em;
+  overflow-x: auto;
+  font-family: 'Courier New', monospace;
+}
+
+.rich-text-editor a {
+  color: #4f46e5;
+  text-decoration: underline;
+}
+
+.rich-text-editor img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5em;
+}
+
+/* ─── Student Notes Panel ─────────────────────────────────────────── */
+.notes-panel {
+  animation: slideUp 0.3s ease-out;
+}
+
+.note-card {
+  transition: all 0.2s ease;
+}
+
+.note-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* ─── Analytics Dashboard ─────────────────────────────────────────── */
+.analytics-card {
+  transition: all 0.3s ease;
+}
+
+.analytics-card:hover {
+  transform: scale(1.02);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+}
+
+.chart-bar {
+  animation: slideUp 0.5s ease-out;
+  animation-fill-mode: both;
+}
+
+.chart-bar:nth-child(1) { animation-delay: 0.1s; }
+.chart-bar:nth-child(2) { animation-delay: 0.2s; }
+.chart-bar:nth-child(3) { animation-delay: 0.3s; }
+.chart-bar:nth-child(4) { animation-delay: 0.4s; }
+.chart-bar:nth-child(5) { animation-delay: 0.5s; }
+
+/* ─── Quiz Improvements ───────────────────────────────────────────── */
+.quiz-option {
+  transition: all 0.2s ease;
+}
+
+.quiz-option:hover:not(:disabled) {
+  transform: translateX(4px);
+  border-color: #6366f1;
+  background: #eef2ff;
+}
+
+.quiz-correct {
+  animation: bounce 0.5s ease;
+  background: #d1fae5 !important;
+  border-color: #10b981 !important;
+}
+
+.quiz-incorrect {
+  animation: shake 0.5s ease;
+  background: #fee2e2 !important;
+  border-color: #ef4444 !important;
+}
+
+/* ─── Block Animations ────────────────────────────────────────────── */
+.block-enter {
+  animation: slideUp 0.3s ease-out;
+}
+
+.block-hover {
+  transition: all 0.2s ease;
+}
+
+.block-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.08);
+}
+
+/* ─── Loading States ──────────────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    #f0f0f0 25%,
+    #e0e0e0 50%,
+    #f0f0f0 75%
+  );
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
+}
+
+@keyframes loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* ─── Progress Bars ───────────────────────────────────────────────── */
+.progress-bar {
+  transition: width 0.5s ease-out;
+}
+
+/* ─── Highlight Colors for Notes ───────────────────────────────────── */
+.highlight-yellow {
+  background: rgba(254, 240, 138, 0.5);
+  border-left: 3px solid #fde047;
+}
+
+.highlight-green {
+  background: rgba(187, 247, 208, 0.5);
+  border-left: 3px solid #86efac;
+}
+
+.highlight-blue {
+  background: rgba(191, 219, 254, 0.5);
+  border-left: 3px solid #93c5fd;
+}
+
+.highlight-pink {
+  background: rgba(252, 207, 232, 0.5);
+  border-left: 3px solid #f9a8d4;
+}
+
+/* ─── Responsive Utilities ────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .flashcard-container {
+    min-height: 200px;
+  }
+  
+  .notes-panel {
+    width: 100% !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    border-radius: 1rem 1rem 0 0;
+  }
+}
+
+/* ─── Scrollbar Styles ────────────────────────────────────────────── */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
+}
+
+/* ─── Focus States for Accessibility ───────────────────────────────── */
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+
+/* ─── Tooltip Styles ──────────────────────────────────────────────── */
+.tooltip {
+  position: relative;
+}
+
+.tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.5rem 0.75rem;
+  background: #1f2937;
+  color: white;
+  font-size: 0.75rem;
+  border-radius: 0.375rem;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+
+.tooltip:hover::after {
+  opacity: 1;
+}
+
+/* ─── Badge Animations ────────────────────────────────────────────── */
+.badge-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* ─── Card Hover Effects ──────────────────────────────────────────── */
+.card-interactive {
+  transition: all 0.3s ease;
+}
+
+.card-interactive:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
+}
+
+/* ─── Text Selection ──────────────────────────────────────────────── */
+::selection {
+  background: #c7d2fe;
+  color: #1e1b4b;
+}
+
+/* ─── Print Styles ────────────────────────────────────────────────── */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  .print-break {
+    page-break-after: always;
+  }
 }

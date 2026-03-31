@@ -1,0 +1,45 @@
+Môn: Vật lý
+Chương: 1
+
+Câu 1: Gia tốc của vật chuyển động đều bằng bao nhiêu?
+A. Không đổi
+B. Bằng 0
+C. Tăng dần
+D. Giảm dần
+Đáp án: B [Điểm: 0.5]
+
+Câu 2: Đơn vị của lực trong hệ SI là?
+A. kg
+B. m/s
+C. N
+D. J
+Đáp án: C [Điểm: 0.5]
+
+Câu 3: Vật nào sau đây chuyển động thẳng đều?
+A. Xe đạp đang hãm phanh
+B. Viên đá ném lên
+C. Xe máy chạy trên đường thẳng với tốc kế không đổi
+D. Con lắc đang dao động
+Đáp án: C [Điểm: 0.5]
+
+Câu 4: Theo định luật II Newton, gia tốc của vật tỉ lệ với?
+A. Khối lượng vật
+B. Lực tác dụng
+C. Vận tốc vật
+D. Quãng đường đi
+Đáp án: B [Điểm: 0.5]
+
+Câu 5 (TF): Lực và phản lực trong định luật III Newton có độ lớn bằng nhau.
+Đáp án: Đúng [Điểm: 0.5]
+
+Câu 6 (TF): Vật đứng yên không có lực nào tác dụng lên nó.
+Đáp án: Sai [Điểm: 0.5]
+
+Câu 7 (TF): Động lượng của hệ vật cô lập được bảo toàn.
+Đáp án: Đúng [Điểm: 0.5]
+
+Câu 8 (TL): Phát biểu và giải thích định luật bảo toàn động lượng. Cho ví dụ minh họa trong thực tế.
+[Điểm: 2.0]
+
+Câu 9 (TL): Một vật có khối lượng 2 kg chuyển động với vận tốc 5 m/s. Tính động năng của vật và giải thích ý nghĩa vật lý của kết quả.
+[Điểm: 2.0]

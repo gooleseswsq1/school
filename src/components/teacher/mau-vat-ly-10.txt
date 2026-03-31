@@ -1,0 +1,95 @@
+MÔN VẬT LÝ - LỚP 10
+ĐỀ KIỂM TRA CHẤT LƯỢNG GIỮA KỲ I
+Năm học 2024-2025
+
+Thời gian: 45 phút
+Họ và tên: _________________________
+Lớp: ___________ Số báo danh: ________
+
+PHẦN I: TRẮC NGHIỆM KHÁCH QUAN (8.0 điểm)
+
+Câu 1 (1.0 điểm): Trong các phát biểu sau, phát biểu nào đúng?
+A. Vận tốc là đại lượng vectơ
+B. Quãng đường là đại lượng vectơ
+C. Gia tốc là đại lượng vô hướng
+D. Vị trí là đại lượng vectơ
+
+Đáp án: A
+
+Câu 2 (1.0 điểm): Một ô tô đi từ A đến B với vận tốc 36 km/h trong 2 giờ. Quãng đường AB dài bao nhiêu?
+A. 18 km
+B. 36 km
+C. 72 km
+D. 108 km
+
+Đáp án: C (Quãng đường = vận tốc × thời gian = 36 × 2 = 72 km)
+
+Câu 3 (1.0 điểm): Chuyển động nào sau đây là chuyển động thẳng đều?
+A. Chuyển động của xe buýt đang tăng tốc
+B. Chuyển động của viên đá rơi tự do
+C. Chuyển động của ô tô đi thẳng với vận tốc không đổi
+D. Chuyển động của con lắc đơn
+
+Đáp án: C
+
+Câu 4 (1.0 điểm): Gia tốc của vật rơi tự do gần mặt đất có giá trị khoảng:
+A. 8.9 m/s²
+B. 9.8 m/s²
+C. 10.8 m/s²
+D. 11.8 m/s²
+
+Đáp án: B
+
+Câu 5 (1.0 điểm): Vectơ gia tốc trong chuyển động thẳng nhanh dần đều có hướng:
+A. Cùng hướng với vận tốc
+B. Ngược hướng với vận tốc
+C. Vuông góc với vận tốc
+D. Không xác định
+
+Đáp án: A
+
+Câu 6 (1.0 điểm): Phát biểu nào sau đây về lực hấp dẫn là đúng?
+A. Lực hấp dẫn chỉ tác dụng lên các vật nặng
+B. Lực hấp dẫn tỉ lệ thuận với khối lượng của vật
+C. Lực hấp dẫn không phụ thuộc vào khoảng cách
+D. Lực hấp dẫn luôn hướng lên trên
+
+Đáp án: B
+
+Câu 7 (1.0 điểm): Hai lực cùng tác dụng lên một vật mà hợp lực có độ lớn bằng hiệu độ lớn của chúng thì:
+A. Hai lực này cùng phương cùng chiều
+B. Hai lực này cùng phương ngược chiều
+C. Hai lực này vuông góc với nhau
+D. Hai lực này tạo thành một góc nhọn
+
+Đáp án: B
+
+Câu 8 (1.0 điểm): Theo định luật II Newton, gia tốc của vật:
+A. Tỉ lệ thuận với lực tác dụng
+B. Tỉ lệ nghịch với khối lượng của vật
+C. Cùng hướng với lực tác dụng
+D. Cả A, B, C đều đúng
+
+Đáp án: D
+
+PHẦN II: TỰ LUẬN (2.0 điểm)
+
+Câu 9 (1.0 điểm): Một xe ô tô chuyển động thẳng với vận tốc ban đầu 10 m/s, gia tốc 2 m/s².
+a) Tính vận tốc của xe sau 5 giây
+b) Tính quãng đường xe đi được trong 5 giây đó
+
+Giải:
+a) v = v₀ + at = 10 + 2×5 = 20 m/s
+b) s = v₀t + ½at² = 10×5 + ½×2×25 = 50 + 25 = 75 m
+
+Câu 10 (1.0 điểm): Một vật được ném thẳng đứng lên trên từ mặt đất với vận tốc ban đầu 20 m/s. Bỏ qua sức cản không khí, lấy g = 10 m/s².
+a) Tính thời gian để vật đạt độ cao cực đại
+b) Tính độ cao cực đại mà vật đạt được
+
+Giải:
+a) Tại độ cao cực đại: v = 0
+   v = v₀ - gt → 0 = 20 - 10t → t = 2 s
+
+b) h = v₀t - ½gt² = 20×2 - ½×10×4 = 40 - 20 = 20 m
+
+HẾT THỜI GIAN
