@@ -185,6 +185,8 @@ function EditSetModal({ set, onSave, onClose }: {
         <div className="mb-4">
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tên bộ thẻ</label>
           <input
+            id="flashcard-set-title"
+            name="flashcardSetTitle"
             value={title}
             onChange={e => setTitle(e.target.value)}
             placeholder="VD: Từ vựng Tiếng Anh Unit 1"
@@ -202,12 +204,16 @@ function EditSetModal({ set, onSave, onClose }: {
                 </button>
               </div>
               <input
+                id={`flashcard-front-${card.id}`}
+                name={`flashcardFront-${card.id}`}
                 value={card.front}
                 onChange={e => updateCard(card.id, 'front', e.target.value)}
                 placeholder="Mặt trước (câu hỏi)"
                 className="w-full px-3 py-2 mb-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
               />
               <input
+                id={`flashcard-back-${card.id}`}
+                name={`flashcardBack-${card.id}`}
                 value={card.back}
                 onChange={e => updateCard(card.id, 'back', e.target.value)}
                 placeholder="Mặt sau (đáp án)"

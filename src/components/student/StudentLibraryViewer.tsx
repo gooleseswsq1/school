@@ -105,10 +105,15 @@ export default function StudentLibraryViewer() {
                 ))}
               </div>
               <div className="flex gap-2 px-4 py-3 border-t border-gray-200 dark:border-slate-700">
-                <input value={commentText} onChange={e => setCommentText(e.target.value)}
+                <input
+                  id="student-library-comment"
+                  name="libraryComment"
+                  value={commentText}
+                  onChange={e => setCommentText(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && submitComment()}
                   placeholder="Viết nhận xét..."
-                  className="flex-1 px-3 py-2 rounded-lg border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-800 text-sm text-gray-900 dark:text-white outline-none" />
+                  className="flex-1 px-3 py-2 rounded-lg border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-800 text-sm text-gray-900 dark:text-white outline-none"
+                />
                 <button onClick={submitComment} className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg">Gửi</button>
               </div>
             </div>

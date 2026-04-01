@@ -176,6 +176,8 @@ function AddTeacherModal({ studentId, onClose, onSuccess }: {
             <div style={{ position: 'relative', marginBottom: 16 }}>
               <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
               <input
+                id="add-teacher-code"
+                name="teacherCode"
                 style={{
                   width: '100%', padding: '10px 44px 10px 38px',
                   border: `1.5px solid ${checkStatus === 'valid' ? '#22c55e' : checkStatus === 'invalid' ? '#ef4444' : '#d1d5db'}`,
@@ -556,6 +558,8 @@ export default function StudentMainDashboard() {
             <div className="relative hidden sm:block">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
+                id="student-main-search-navbar"
+                name="studentSearchNavbar"
                 type="text"
                 placeholder="Tìm kiếm..."
                 value={searchQuery}
@@ -840,6 +844,8 @@ export default function StudentMainDashboard() {
             <div className="relative">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
+                id="student-main-search-lectures"
+                name="studentSearchLectures"
                 type="text"
                 placeholder="Tìm kiếm bài giảng..."
                 value={searchQuery}

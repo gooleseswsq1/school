@@ -222,6 +222,8 @@ export default function StudentUploadPage() {
                     }`}
                   >
                     <input
+                      id="student-upload-file"
+                      name="submissionFile"
                       type="file"
                       ref={fileInputRef}
                       onChange={handleFileChange}
@@ -281,6 +283,7 @@ export default function StudentUploadPage() {
                     </label>
                     <input
                       id="submission-title"
+                      name="submissionTitle"
                       type="text"
                       value={submissionTitle}
                       onChange={(e) => setSubmissionTitle(e.target.value)}
@@ -296,6 +299,7 @@ export default function StudentUploadPage() {
                     </label>
                     <textarea
                       id="submission-description"
+                      name="submissionDescription"
                       value={submissionDescription}
                       onChange={(e) => setSubmissionDescription(e.target.value)}
                       placeholder="Mô tả về bài nộp của bạn..."

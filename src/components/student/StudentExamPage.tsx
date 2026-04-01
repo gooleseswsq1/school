@@ -605,6 +605,8 @@ export default function StudentExamPage({ mode = 'exam' }: StudentExamPageProps)
           {(qKind === 'ESSAY' || qKind === 'SAQ') && (
             <>
               <textarea
+                id={`student-exam-essay-${item.id}`}
+                name={`examEssay-${item.id}`}
                 value={essayAnswers[item.id] || ''}
                 onChange={e => handleEssayChange(item.id, e.target.value)}
                 placeholder={qKind === 'SAQ' ? 'Nhập đáp án ngắn...' : 'Viết câu trả lời của bạn tại đây...'}

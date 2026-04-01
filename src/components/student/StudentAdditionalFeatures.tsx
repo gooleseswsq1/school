@@ -447,6 +447,8 @@ export default function StudentAdditionalFeatures({ studentId, notifications: pr
             {showGoalForm && (
               <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 space-y-3">
                 <input
+                  id="goal-title"
+                  name="goalTitle"
                   type="text"
                   placeholder="Tên mục tiêu (VD: Hoàn thành bài tập Toán)"
                   value={goalForm.title}
@@ -455,6 +457,8 @@ export default function StudentAdditionalFeatures({ studentId, notifications: pr
                 />
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <input
+                    id="goal-target"
+                    name="goalTarget"
                     type="number"
                     placeholder="Mục tiêu"
                     value={goalForm.target}
@@ -462,6 +466,8 @@ export default function StudentAdditionalFeatures({ studentId, notifications: pr
                     className="px-3 py-2 rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm"
                   />
                   <input
+                    id="goal-unit"
+                    name="goalUnit"
                     type="text"
                     placeholder="Đơn vị"
                     value={goalForm.unit}
@@ -469,12 +475,16 @@ export default function StudentAdditionalFeatures({ studentId, notifications: pr
                     className="px-3 py-2 rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm"
                   />
                   <input
+                    id="goal-deadline"
+                    name="goalDeadline"
                     type="date"
                     value={goalForm.deadline}
                     onChange={e => setGoalForm(f => ({ ...f, deadline: e.target.value }))}
                     className="px-3 py-2 rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm"
                   />
                   <input
+                    id="goal-color"
+                    name="goalColor"
                     type="color"
                     value={goalForm.color}
                     onChange={e => setGoalForm(f => ({ ...f, color: e.target.value }))}
