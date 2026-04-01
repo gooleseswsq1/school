@@ -114,6 +114,11 @@ function toEmbedUrl(url: string): string {
 
 /** Platforms that need allow-same-origin in sandbox */
 function getSandboxPolicy(url: string): string {
+  // Supabase-hosted interactive HTML5 packages need full permissions to run JS, load assets, use storage
+  const isSupabaseInteractive = /supabase\.co\/storage\/v1\/object.*\/interactive\//i;
+  if (isSupabaseInteractive.test(url)) {
+    return "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-presentation allow-modals allow-downloads allow-pointer-lock";
+  }
   // Some platforms need same-origin to function
   const needsSameOrigin = /notion\.site|notion\.so|padlet\.com|genial\.ly|genially\.com|quizlet\.com|supabase\.co\/storage\/v1\/object/i;
   if (needsSameOrigin.test(url)) {
@@ -174,25 +179,26 @@ export default function EmbedBlockComponent({
         }
 
         const folderId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        let indexPath: string | null = null;
+        const safeEntries = entries
+          .map(([relativePath]) => sanitizeZipPath(relativePath))
+          .filter((p): p is string => Boolean(p));
+        const indexCandidates = safeEntries.filter((p) => {
+          const lower = p.toLowerCase();
+          return lower === "index.html" || lower.endsWith("/index.html");
+        });
+        const indexPath = indexCandidates.sort((a, b) => a.split("/").length - b.split("/").length)[0] || null;
         const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        let indexPublicUrl: string | null = null;
 
         for (let i = 0; i < entries.length; i++) {
           const [relativePath, zipEntry] = entries[i];
           const safePath = sanitizeZipPath(relativePath);
           if (!safePath) continue;
 
-          const lower = safePath.toLowerCase();
-          if (lower === "index.html" || lower.endsWith("/index.html")) {
-            if (!indexPath || safePath.split("/").length < indexPath.split("/").length) {
-              indexPath = safePath;
-            }
-          }
-
           const signRes = await fetch("/api/storage/sign-upload", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ path: `interactive/${folderId}/${safePath}` }),
+            body: JSON.stringify({ path: `interactive/${folderId}/${safePath}`, upsert: true }),
           });
           if (!signRes.ok) {
             const e = await signRes.json().catch(() => ({}));
@@ -200,17 +206,26 @@ export default function EmbedBlockComponent({
           }
 
           const signed = await signRes.json();
-          const blob = await zipEntry.async("blob");
+          // Ensure the Blob has the correct MIME type so the browser's fetch sends the correct Content-Type header
+          const arrayBuffer = await zipEntry.async("arraybuffer");
+          const mimeType = contentTypeByName(safePath);
+          const typedBlob = new Blob([arrayBuffer], { type: mimeType });
 
           const { error } = await supabase.storage
             .from(signed.bucket)
-            .uploadToSignedUrl(signed.path, signed.token, blob, {
-              contentType: contentTypeByName(safePath),
-              upsert: false,
+            .uploadToSignedUrl(signed.path, signed.token, typedBlob, {
+              contentType: mimeType,
             });
 
           if (error) {
-            throw new Error(error.message || `Upload thất bại: ${safePath}`);
+            // Skip "already exists" errors — file is already uploaded (retry safe)
+            if (!error.message?.toLowerCase().includes('already exists')) {
+              throw new Error(error.message || `Upload thất bại: ${safePath}`);
+            }
+          }
+
+          if (indexPath && safePath === indexPath && signed.publicUrl) {
+            indexPublicUrl = signed.publicUrl;
           }
 
           const pct = 20 + Math.round(((i + 1) / entries.length) * 75);
@@ -222,21 +237,10 @@ export default function EmbedBlockComponent({
           throw new Error("ZIP phải chứa file index.html");
         }
 
-        const finalRes = await fetch("/api/storage/sign-upload", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path: `interactive/${folderId}/${indexPath}` }),
-        });
-        if (!finalRes.ok) {
-          const e = await finalRes.json().catch(() => ({}));
-          toast.dismiss(loadingId);
-          throw new Error(e?.error || "Không lấy được URL public cho index.html");
-        }
-
-        const finalData = await finalRes.json();
+        const finalPublicUrl = indexPublicUrl || `${SUPABASE_URL}/storage/v1/object/public/school-files/interactive/${folderId}/${indexPath}`;
         setUploadProgress(100);
-        setEmbedUrl(finalData.publicUrl);
-        await onUpdate({ content: finalData.publicUrl });
+        setEmbedUrl(finalPublicUrl);
+        await onUpdate({ content: finalPublicUrl });
         toast.dismiss(loadingId);
         toast.success("Tải ZIP lên Supabase thành công!");
         return;

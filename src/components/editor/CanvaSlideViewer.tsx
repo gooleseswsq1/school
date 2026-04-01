@@ -385,9 +385,10 @@ export default function CanvaSlideViewer({ slidesData = [], blockId }: CanvaSlid
               ref={canvasRef}
               slideId={slide.id}
               slideData={slide}
-              readOnly
+              readOnly={true}
               zoom={1}
               onRightPanelToggle={undefined}
+              isPresentationMode={false}
             />
           )}
         </div>

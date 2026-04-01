@@ -1156,6 +1156,9 @@ export const CanvasEditorPro = forwardRef<
       const handleModified = () => {
         // IMPORTANT: Do NOT save if in presentation mode to prevent animation state from being persisted
         if (isPresentationMode) return;
+        
+        // IMPORTANT: Do NOT save if in readOnly mode - students should not modify student lectures
+        if (readOnly) return;
 
         // Specify custom properties to persist: animation, animationOrder, crossOrigin
         const canvasData = canvas.toJSON(['animation', 'animationOrder', 'crossOrigin', 'hyperlink', 'soundUrl', 'soundName', 'animationDelay']);

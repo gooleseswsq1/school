@@ -107,10 +107,16 @@ async function uploadVideoDirectToSupabase(file: File): Promise<string | null> {
 
   if (!signRes.ok) {
     const e = await signRes.json().catch(() => ({}));
-    throw new Error(e?.error || "Khong tao duoc signed upload URL");
+    throw new Error(e?.error || "Không tạo được signed upload URL");
   }
 
   const signed = await signRes.json();
+  
+  // Check if we have a valid token
+  if (!signed.token) {
+    throw new Error("Không nhận được upload token từ server");
+  }
+
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const { error } = await supabase.storage
     .from(signed.bucket)
@@ -120,10 +126,16 @@ async function uploadVideoDirectToSupabase(file: File): Promise<string | null> {
     });
 
   if (error) {
-    throw new Error(error.message || "Upload video len Supabase that bai");
+    throw new Error(error.message || "Upload video lên Supabase thất bại");
   }
 
-  return signed.publicUrl as string;
+  // Use the public URL from signed response, or construct it
+  return signed.publicUrl || `${SUPABASE_URL}/storage/v1/object/public/${signed.bucket}/${signed.path}`;
+}
+
+function isStorageSizeLimitError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error || "");
+  return /maximum allowed size|exceeded the maximum allowed size|too large|payload too large/i.test(msg);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -298,6 +310,13 @@ function VideoEditModal({
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !file.type.startsWith("video/")) { toast.error("Vui lòng chọn file video"); return; }
+
+    const maxVideoMb = Number(process.env.NEXT_PUBLIC_MAX_VIDEO_UPLOAD_MB || 50);
+    if (file.size > maxVideoMb * 1024 * 1024) {
+      toast.error(`Video vượt quá giới hạn ${maxVideoMb}MB. Vui lòng nén file hoặc tăng giới hạn bucket storage.`);
+      return;
+    }
+
     const loadingId = toast.loading("Đang upload video...");
     try {
       let url: string | null = null;
@@ -306,6 +325,9 @@ function VideoEditModal({
       try {
         url = await uploadVideoDirectToSupabase(file);
       } catch (directErr) {
+        if (isStorageSizeLimitError(directErr)) {
+          throw new Error("Video vượt quá giới hạn dung lượng của Storage. Hãy tăng file size limit trên Supabase bucket hoặc giảm dung lượng video.");
+        }
         console.warn("Direct upload failed, fallback to /api/videos:", directErr);
       }
 
