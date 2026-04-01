@@ -519,15 +519,15 @@ sudo certbot --nginx -d yourdomain.com
 
 ## ⚠️ Đánh giá độ ổn định hệ thống
 
-### 📊 Điểm đánh giá: 3.6/10
+### 📊 Điểm đánh giá (cập nhật): 6.2/10
 
-| Tiêu chí | Điểm | Vấn đề chính |
-|----------|------|--------------|
-| Error Handling | 4/10 | Nhiều endpoint thiếu try-catch |
-| Database | 3/10 | SQLite không phù hợp production |
-| Memory Management | 5/10 | Có cleanup nhưng không đầy đủ |
-| Input Validation | 4/10 | Thiếu validation nhiều nơi |
-| Scalability | 2/10 | Không thể scale với SQLite |
+| Tiêu chí | Điểm | Nhận định hiện tại |
+|----------|------|--------------------|
+| Error Handling | 6/10 | Nhiều route đã có try-catch, nhưng chưa đồng đều toàn bộ endpoint |
+| Database | 7/10 | Production định hướng PostgreSQL; SQLite giữ cho môi trường development |
+| Memory Management | 6/10 | Có cleanup/job xử lý định kỳ, cần thêm theo dõi memory chuyên sâu |
+| Input Validation | 6/10 | Đã có Zod và cải thiện form-level, nhưng chưa phủ kín 100% API |
+| Scalability | 6/10 | Đã có Redis/cache/rate-limit; cần thêm load test để nâng độ tin cậy |
 
 ### ✅ Checklist BẮT BUỘC trước khi deploy
 
