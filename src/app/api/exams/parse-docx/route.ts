@@ -13,6 +13,16 @@ import { parseDocxUnderlineInference } from '@/utils/docx-parser-ts';
 import { convertWmfImage, isWmfImage, isDisplayableImage as isDisplayableImageUtil, batchConvertWmfImages } from '@/utils/wmf-converter';
 import { preprocessDocxMath, resolveLatexMarkers } from '@/utils/omml-to-latex';
 import { extractOleFormulas, replaceOleImagesWithLatex, type OleFormula } from '@/utils/ole-extractor';
+import { createDocxParseQueue } from '@/lib/bullmq';
+import { prisma } from '@/lib/prisma';
+import {
+  buildStoragePath,
+  guessContentTypeByFilename,
+  hasSupabaseStorageConfig,
+  uploadBufferToStorage,
+} from '@/lib/supabase-storage';
+
+const prismaAny = prisma as any;
 
 /* ─── Types ── */
 interface ParsedQuestion {
@@ -30,6 +40,19 @@ interface ParsedQuestion {
   inlineImages: string[];
   status: 'ok' | 'warn' | 'error';
   warnMsg?: string;
+}
+
+function ensureLatexDelimiters(latex: string): string {
+  const trimmed = latex.trim();
+  if (!trimmed) return trimmed;
+  if (
+    trimmed.startsWith('$') ||
+    trimmed.startsWith('\\(') ||
+    trimmed.startsWith('\\[')
+  ) {
+    return trimmed;
+  }
+  return `$${trimmed}$`;
 }
 
 /* ─── Difficulty mapping ── */
@@ -509,6 +532,76 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'file is required' }, { status: 400 });
     }
 
+    // Default mode: enqueue async parse job, do not parse synchronously in request.
+    // Worker sets x-parse-sync=1 to run the sync parser branch below.
+    const isSyncParse = request.headers.get('x-parse-sync') === '1';
+    if (!isSyncParse) {
+      try {
+        const bytes = await file.arrayBuffer();
+        const buffer = Buffer.from(bytes);
+
+        let fileUrl = '';
+        if (hasSupabaseStorageConfig()) {
+          const path = buildStoragePath('docx-parse', file.name || 'input.docx');
+          const uploaded = await uploadBufferToStorage({
+            path,
+            buffer,
+            contentType: file.type || guessContentTypeByFilename(file.name || 'input.docx'),
+            cacheControl: '3600',
+          });
+          fileUrl = uploaded.publicUrl;
+        } else {
+          const mime = file.type || guessContentTypeByFilename(file.name || 'input.docx');
+          fileUrl = `data:${mime};base64,${buffer.toString('base64')}`;
+        }
+
+        if (!fileUrl) {
+          throw new Error('Cannot prepare file URL for async parsing');
+        }
+
+        const userId = request.headers.get('x-user-id') || undefined;
+        const backgroundJob = await prismaAny.backgroundJob.create({
+          data: {
+            type: 'DOCX_PARSE',
+            status: 'QUEUED',
+            userId,
+            inputJson: JSON.stringify({
+              fileName: file.name,
+              target: 'exams',
+            }),
+            expiresAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+          },
+        });
+
+        const queue = createDocxParseQueue();
+        const enqueued = await queue.add('docx-parse', {
+          backgroundJobId: backgroundJob.id,
+          fileUrl,
+          fileName: file.name || 'input.docx',
+          target: 'exams',
+        });
+
+        await prismaAny.backgroundJob.update({
+          where: { id: backgroundJob.id },
+          data: { queueJobId: String(enqueued.id) },
+        });
+
+        await queue.close();
+
+        return NextResponse.json(
+          {
+            success: true,
+            queued: true,
+            jobId: backgroundJob.id,
+            status: 'QUEUED',
+          },
+          { status: 202 }
+        );
+      } catch (enqueueError) {
+        console.warn('[parse-docx] Async enqueue failed, fallback to sync parse:', enqueueError);
+      }
+    }
+
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
     const filename = file.name.toLowerCase();
@@ -591,6 +684,15 @@ export async function POST(request: NextRequest) {
           const imgIdx = parseInt(idxStr, 10);
           const src = imageMap.get(imgIdx);
           if (!src) return '';
+
+          // If OLE extraction replaced this WMF image with a LaTeX marker,
+          // inject math text directly instead of rendering a broken <img src="[[LATEX:...]]">.
+          const latexMarkerMatch = src.match(/^\[\[LATEX:([\s\S]*)\]\]$/);
+          if (latexMarkerMatch) {
+            const latex = ensureLatexDelimiters(latexMarkerMatch[1]);
+            return ` ${latex} `;
+          }
+
           if (formulaIndices.has(imgIdx)) {
             const idx = inlineImages.length;
             inlineImages.push(src);

@@ -11,6 +11,13 @@ import {
 import { convertWmfImage, isWmfImage, isDisplayableImage as isDisplayableImageUtil, batchConvertWmfImages } from '@/utils/wmf-converter';
 import { preprocessDocxMath, resolveLatexMarkers } from '@/utils/omml-to-latex';
 import { extractOleFormulas, replaceOleImagesWithLatex, type OleFormula } from '@/utils/ole-extractor';
+import { createDocxParseQueue } from '@/lib/bullmq';
+import {
+  buildStoragePath,
+  guessContentTypeByFilename,
+  hasSupabaseStorageConfig,
+  uploadBufferToStorage,
+} from '@/lib/supabase-storage';
 
 const prisma = new PrismaClient();
 
@@ -453,6 +460,77 @@ export async function POST(request: NextRequest) {
 
     if (!file) {
       return NextResponse.json({ error: 'file is required' }, { status: 400 });
+    }
+
+    // Default mode: enqueue async parse job, keep sync parser for worker calls.
+    const isSyncParse = request.headers.get('x-parse-sync') === '1';
+    if (!isSyncParse) {
+      try {
+        const bytes = await file.arrayBuffer();
+        const buffer = Buffer.from(bytes);
+
+        let fileUrl = '';
+        if (hasSupabaseStorageConfig()) {
+          const path = buildStoragePath('docx-parse', file.name || 'input.docx');
+          const uploaded = await uploadBufferToStorage({
+            path,
+            buffer,
+            contentType: file.type || guessContentTypeByFilename(file.name || 'input.docx'),
+            cacheControl: '3600',
+          });
+          fileUrl = uploaded.publicUrl;
+        } else {
+          const mime = file.type || guessContentTypeByFilename(file.name || 'input.docx');
+          fileUrl = `data:${mime};base64,${buffer.toString('base64')}`;
+        }
+
+        if (!fileUrl) {
+          throw new Error('Cannot prepare file URL for async parsing');
+        }
+
+        const userId = request.headers.get('x-user-id') || undefined;
+        const backgroundJob = await prisma.backgroundJob.create({
+          data: {
+            type: 'DOCX_PARSE',
+            status: 'QUEUED',
+            userId,
+            inputJson: JSON.stringify({
+              fileName: file.name,
+              target: 'exam-banks',
+              authorId: authorId || undefined,
+            }),
+            expiresAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+          },
+        });
+
+        const queue = createDocxParseQueue();
+        const enqueued = await queue.add('docx-parse', {
+          backgroundJobId: backgroundJob.id,
+          fileUrl,
+          fileName: file.name || 'input.docx',
+          target: 'exam-banks',
+          authorId: authorId || undefined,
+        });
+
+        await prisma.backgroundJob.update({
+          where: { id: backgroundJob.id },
+          data: { queueJobId: String(enqueued.id) },
+        });
+
+        await queue.close();
+
+        return NextResponse.json(
+          {
+            success: true,
+            queued: true,
+            jobId: backgroundJob.id,
+            status: 'QUEUED',
+          },
+          { status: 202 }
+        );
+      } catch (enqueueError) {
+        console.warn('[exam-banks/parse] Async enqueue failed, fallback to sync parse:', enqueueError);
+      }
     }
 
     const bytes = await file.arrayBuffer();

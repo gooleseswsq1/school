@@ -5,6 +5,12 @@
   "installCommand": "npm install",
   "framework": "nextjs",
   "regions": ["sin1"],
+  "crons": [
+    {
+      "path": "/api/cron/job-cleanup",
+      "schedule": "0 */6 * * *"
+    }
+  ],
   "functions": {
     "src/app/api/**/*": {
       "maxDuration": 60
