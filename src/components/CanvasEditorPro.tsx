@@ -11,6 +11,7 @@ import React, {
 import LaTeXRenderer from '@/components/latex/LaTeXRenderer';
 import { useSlideStore } from '@/stores/slideStore';
 import { resolveAnimationTargetOpacity, shouldAnimateLatexOverlay } from '@/utils/latex-animation';
+import { createPasteHandler } from '@/lib/canvas-paste-handler';
 import {
   Type,
   Image as ImageIcon,
@@ -98,8 +99,8 @@ interface CanvasEditorProProps {
   onSelectionChange?: (animationType: string | null) => void;
   /** Called once after canvas is fully loaded & rendered (use this to trigger animations) */
   onReady?: () => void;
-  /** Called whenever an image is uploaded — receives the base64 data URL */
-  onImageUploaded?: (url: string) => void;
+  /** Called whenever an image is uploaded/pasted */
+  onImageUploaded?: (url: string, options?: { source?: 'upload' | 'background' | 'paste' }) => void;
   /** Called when user clicks the Quiz (💡) button in the toolbar */
   onAddQuiz?: () => void;
 }
@@ -1621,7 +1622,7 @@ export const CanvasEditorPro = forwardRef<
       const imgUrl = e.target?.result as string;
 
       // Notify parent so it can save to image library
-      onImageUploaded?.(imgUrl);
+      onImageUploaded?.(imgUrl, { source: 'upload' });
 
       // Load ảnh từ chuỗi Base64 với error callback
       fabric.Image.fromURL(
@@ -2193,6 +2194,28 @@ export const CanvasEditorPro = forwardRef<
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isReady, selectedObject, readOnly, handleUndo, handleDuplicate]);
+
+  // Setup paste event listener (Ctrl+V for images)
+  useEffect(() => {
+    if (!isReady || readOnly) return;
+
+    const handlePaste = createPasteHandler({
+      fabricCanvasRef,
+      isReady,
+      readOnly,
+      slideId,
+      onImageUploaded,
+      updateSlide,
+      sanitizeCanvasData,
+      fabric,
+    });
+
+    window.addEventListener('paste', handlePaste as any);
+
+    return () => {
+      window.removeEventListener('paste', handlePaste as any);
+    };
+  }, [isReady, readOnly, slideId, onImageUploaded, updateSlide]);
 
   if (!isReady) {
     return (

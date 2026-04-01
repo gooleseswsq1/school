@@ -1,6 +1,6 @@
 // Penta School - Prisma Schema
 // Nâng cấp: PostgreSQL + School + Class + PublishMode + ExamBank + Difficulty
-// Cập nhật: March 2026
+// Cập nhật: April 2026 — PostgreSQL production
 
 generator client {
   provider = "prisma-client-js"
@@ -74,6 +74,20 @@ enum ExamStatus {
   OPEN      // Đang mở cho học sinh làm
   CLOSED    // Đã đóng
   ARCHIVED  // Lưu trữ
+}
+
+enum BackgroundJobType {
+  DOCX_PARSE
+  CLEANUP
+  EMAIL_NOTIFY
+}
+
+enum BackgroundJobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELED
 }
 
 // ─── Models ───────────────────────────────────────────────
@@ -166,8 +180,11 @@ model User {
   attempts         StudentExamAttempt[] @relation("StudentAttempts") // bài làm HS
   libraryFiles     LibraryFile[]      @relation("TeacherLibrary") // thư viện GV
   libraryComments  LibraryComment[]   @relation("LibraryCommentAuthor")
+  canvaImageAssets CanvaImageAsset[]
   schedules        Schedule[]         @relation("TeacherSchedules")
   goals            StudentGoal[]      @relation("StudentGoals")
+  refreshTokens    RefreshToken[]     @relation("UserRefreshTokens") // JWT refresh tokens
+  backgroundJobs   BackgroundJob[]
 
   @@index([email])
   @@index([role])
@@ -186,6 +203,48 @@ model ActivationCode {
 
   @@index([code])
   @@index([isUsed])
+  @@index([expiresAt])
+}
+
+// ─── Refresh Token (JWT) ───────────────────────────────────
+// Tracks refresh tokens for invalidation and revocation
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique // Hash of the actual token (for security)
+  user      User     @relation("UserRefreshTokens", fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+
+  isRevoked Boolean  @default(false)
+  createdAt DateTime @default(now())
+  expiresAt DateTime // Token expiry time (7 days from creation)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([isRevoked])
+}
+
+model BackgroundJob {
+  id         String              @id @default(cuid())
+  type       BackgroundJobType
+  status     BackgroundJobStatus @default(QUEUED)
+  queueJobId String?             @unique
+  userId     String?
+  user       User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  inputJson  String?
+  resultJson String?
+  error      String?
+
+  createdAt  DateTime @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+  expiresAt  DateTime?
+
+  @@index([type])
+  @@index([status])
+  @@index([userId])
+  @@index([createdAt])
   @@index([expiresAt])
 }
 
@@ -620,6 +679,41 @@ model LibraryComment {
 
   @@index([fileId])
   @@index([authorId])
+}
+
+// ─── Canva Image Library ─────────────────────────────────────
+// Per-user deduplicated image assets and block references.
+
+model CanvaImageAsset {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  hash      String
+  url       String
+  source    String   @default("upload") // upload | background | paste
+  isVisible Boolean  @default(true)
+
+  refs      CanvaBlockImageRef[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, hash])
+  @@index([userId, isVisible])
+  @@index([hash])
+}
+
+model CanvaBlockImageRef {
+  id        String          @id @default(cuid())
+  blockId   String
+  image     CanvaImageAsset @relation(fields: [imageId], references: [id], onDelete: Cascade)
+  imageId   String
+
+  createdAt DateTime @default(now())
+
+  @@unique([blockId, imageId])
+  @@index([blockId])
+  @@index([imageId])
 }
 
 // ─── Schedule (Lịch học) ──────────────────────────────────

@@ -28,6 +28,7 @@ import {
 import MagicQuizBuilder from './editor/MagicQuizBuilder';
 import QuizViewer from './editor/QuizViewer';
 import { canvaToLesson } from '@/utils/canvaToLesson';
+import { getAuthUser } from '@/lib/auth-storage';
 import toast from 'react-hot-toast';
 // Note: CheckCircle & ArrowRight used in quiz phase UI
 
@@ -44,6 +45,48 @@ interface MiniCanvaAppProps {
   blockId?: string;
   initialSlidesData?: any;
   onClose?: (slidesData: any) => void;
+}
+
+type ImageSource = 'upload' | 'background' | 'paste';
+
+async function hashText(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function hashDataUrl(dataUrl: string): Promise<string> {
+  const comma = dataUrl.indexOf(',');
+  if (comma === -1) return hashText(dataUrl);
+  const b64 = dataUrl.slice(comma + 1);
+  try {
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  } catch {
+    return hashText(dataUrl);
+  }
+}
+
+async function computeImageHash(url: string): Promise<string> {
+  if (url.startsWith('data:')) return hashDataUrl(url);
+  return hashText(url);
+}
+
+function getImageUrlsFromSlides(slides: any[]): string[] {
+  const urls = new Set<string>();
+  for (const slide of slides || []) {
+    const objects = slide?.canvasData?.objects;
+    if (!Array.isArray(objects)) continue;
+    for (const obj of objects) {
+      if (obj?.type === 'image' && typeof obj?.src === 'string' && obj.src) {
+        urls.add(obj.src);
+      }
+    }
+  }
+  return Array.from(urls);
 }
 
 export const MiniCanvaApp: React.FC<MiniCanvaAppProps> = ({
@@ -73,30 +116,177 @@ export const MiniCanvaApp: React.FC<MiniCanvaAppProps> = ({
   // Track which slides teacher/student has answered quiz on
   const [quizDoneSlides, setQuizDoneSlides] = useState<Set<string>>(new Set());
 
-  // Image Library: persisted in localStorage, max 12 images
-  const [imageLibrary, setImageLibrary] = useState<string[]>(() => {
-    if (typeof window === 'undefined') return [];
-    try {
-      const stored = localStorage.getItem('mini-canva-image-library');
-      return stored ? JSON.parse(stored) : [];
-    } catch { return []; }
-  });
+  const [userId, setUserId] = useState<string>('anonymous');
+  const [imageLibrary, setImageLibrary] = useState<string[]>([]);
+  const [imageHashesByUrl, setImageHashesByUrl] = useState<Record<string, string>>({});
 
-  const handleImageUploaded = (url: string) => {
+  const getLibraryKey = useCallback((uid: string) => `mini-canva-image-library:${uid}`, []);
+  const getHiddenKey = useCallback((uid: string) => `mini-canva-hidden-images:${uid}`, []);
+  const getRefsKey = useCallback((uid: string) => `mini-canva-image-refs:${uid}`, []);
+
+  useEffect(() => {
+    try {
+      const auth = getAuthUser();
+      setUserId(auth?.id || 'anonymous');
+    } catch {
+      setUserId('anonymous');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let aborted = false;
+
+    const loadLibrary = async () => {
+      try {
+        const res = await fetch(`/api/canva-image-library`);
+        if (res.ok) {
+          const json = await res.json();
+          const items: Array<{ url: string; hash: string }> = json?.images || [];
+          if (aborted) return;
+          setImageLibrary(items.map((i) => i.url));
+          const map: Record<string, string> = {};
+          for (const item of items) map[item.url] = item.hash;
+          setImageHashesByUrl(map);
+          return;
+        }
+      } catch {
+        // Fallback to local storage for resilience
+      }
+
+      try {
+        const stored = localStorage.getItem(getLibraryKey(userId));
+        if (aborted) return;
+        setImageLibrary(stored ? JSON.parse(stored) : []);
+      } catch {
+        if (!aborted) setImageLibrary([]);
+      }
+    };
+
+    loadLibrary();
+    return () => {
+      aborted = true;
+    };
+  }, [userId, getLibraryKey]);
+
+  const persistLibrary = useCallback((next: string[]) => {
+    try {
+      localStorage.setItem(getLibraryKey(userId), JSON.stringify(next));
+    } catch {}
+  }, [getLibraryKey, userId]);
+
+  const persistHiddenImages = useCallback((next: string[]) => {
+    try {
+      localStorage.setItem(getHiddenKey(userId), JSON.stringify(next));
+    } catch {}
+  }, [getHiddenKey, userId]);
+
+  const handleImageUploaded = useCallback(async (url: string, options?: { source?: ImageSource }) => {
+    const source = options?.source || 'upload';
+    const hash = await computeImageHash(url);
+
+    setImageHashesByUrl((prev) => ({ ...prev, [url]: hash }));
+
+    try {
+      if (userId !== 'anonymous') {
+        await fetch('/api/canva-image-library', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ blockId, url, hash, source }),
+        });
+      }
+    } catch {
+      // Keep local fallback behavior below.
+    }
+
+    if (source === 'paste') {
+      try {
+        const raw = localStorage.getItem(getHiddenKey(userId));
+        const hidden: string[] = raw ? JSON.parse(raw) : [];
+        const nextHidden = [url, ...hidden.filter((u) => u !== url)].slice(0, 200);
+        persistHiddenImages(nextHidden);
+      } catch {}
+      return;
+    }
+
     setImageLibrary((prev) => {
-      const updated = [url, ...prev.filter((u) => u !== url)].slice(0, 12);
-      try { localStorage.setItem('mini-canva-image-library', JSON.stringify(updated)); } catch {}
+      const updated = [url, ...prev.filter((u) => u !== url)].slice(0, 50);
+      persistLibrary(updated);
       return updated;
     });
-  };
+  }, [blockId, getHiddenKey, persistHiddenImages, persistLibrary, userId]);
 
-  const removeFromLibrary = (url: string) => {
+  const removeFromLibrary = useCallback(async (url: string) => {
+    const hash = imageHashesByUrl[url] || await computeImageHash(url);
+    try {
+      if (userId !== 'anonymous') {
+        await fetch('/api/canva-image-library', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hash }),
+        });
+      }
+    } catch {
+      // ignore and keep local update below
+    }
+
     setImageLibrary((prev) => {
       const updated = prev.filter((u) => u !== url);
-      try { localStorage.setItem('mini-canva-image-library', JSON.stringify(updated)); } catch {}
+      persistLibrary(updated);
       return updated;
     });
-  };
+  }, [imageHashesByUrl, persistLibrary, userId]);
+
+  // Sync image references by block and cleanup hidden clipboard images that are no longer used.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !blockId) return;
+
+    try {
+      const refsKey = getRefsKey(userId);
+      const refsRaw = localStorage.getItem(refsKey);
+      const refsMap: Record<string, string[]> = refsRaw ? JSON.parse(refsRaw) : {};
+      refsMap[blockId] = getImageUrlsFromSlides(slides);
+      localStorage.setItem(refsKey, JSON.stringify(refsMap));
+
+      const allUsed = new Set<string>(Object.values(refsMap).flat());
+      const hiddenRaw = localStorage.getItem(getHiddenKey(userId));
+      const hidden: string[] = hiddenRaw ? JSON.parse(hiddenRaw) : [];
+      const cleanedHidden = hidden.filter((u) => allUsed.has(u));
+      if (cleanedHidden.length !== hidden.length) {
+        persistHiddenImages(cleanedHidden);
+      }
+    } catch (e) {
+      console.warn('Failed to sync image references:', e);
+    }
+  }, [blockId, slides, userId, getRefsKey, getHiddenKey, persistHiddenImages]);
+
+  useEffect(() => {
+    if (!blockId || userId === 'anonymous') return;
+    let canceled = false;
+
+    const syncRefs = async () => {
+      const urls = getImageUrlsFromSlides(slides);
+      const hashes = await Promise.all(
+        urls.map(async (url) => imageHashesByUrl[url] || computeImageHash(url))
+      );
+      if (canceled) return;
+
+      try {
+        await fetch('/api/canva-image-library/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ blockId, hashes }),
+        });
+      } catch {
+        // best-effort sync
+      }
+    };
+
+    syncRefs();
+    return () => {
+      canceled = true;
+    };
+  }, [blockId, slides, userId, imageHashesByUrl]);
   const audioRef = useRef<HTMLAudioElement>(null);
   const canvasEditorRef = useRef<CanvasEditorProHandle>(null);
 
@@ -293,7 +483,7 @@ export const MiniCanvaApp: React.FC<MiniCanvaAppProps> = ({
       if (url) {
         canvasEditorRef.current?.setBackgroundImage(url);
         // Also save to image library so user can reuse it on other slides
-        handleImageUploaded(url);
+        handleImageUploaded(url, { source: 'background' });
       }
     };
     reader.readAsDataURL(file);
@@ -887,7 +1077,7 @@ export const MiniCanvaApp: React.FC<MiniCanvaAppProps> = ({
                     onClick={() => {
                       if (confirm('Xóa toàn bộ thư viện ảnh?')) {
                         setImageLibrary([]);
-                        try { localStorage.removeItem('mini-canva-image-library'); } catch {}
+                        try { localStorage.removeItem(`mini-canva-image-library:${userId}`); } catch {}
                       }
                     }}
                     className="text-xs text-red-400 hover:text-red-600 transition"
@@ -936,7 +1126,7 @@ export const MiniCanvaApp: React.FC<MiniCanvaAppProps> = ({
                 </div>
               )}
               <p className="text-xs text-gray-400 mt-2 leading-relaxed">
-                💡 Ảnh tự động lưu khi bạn upload vào slide
+                💡 Ảnh upload sẽ vào thư viện dùng chung theo tài khoản. Ảnh Ctrl+V được lưu ẩn và tự dọn khi không còn dùng.
               </p>
             </section>
 
