@@ -24,32 +24,33 @@ export interface OleFormula {
  */
 function extractTextFromOleBinary(buffer: Buffer): string {
   try {
-    // Convert to string and try to extract readable formula patterns
-    const text = buffer.toString('utf8', 0, Math.min(buffer.length, 10000));
-    
-    // Common patterns in OLE formula data:
-    // - LaTeX-like markers
-    // - MathML fragments
-    // - Plain text representations
-    
-    // Try to find LaTeX patterns (common in newer MathType exports)
-    // Look for $...$, \[...\], or \begin{...}...\end{...}
-    const latexMatch = text.match(/(?:\$[^$]*\$|\\[[^\]]*\\]|\\begin\{[^}]*\}[\s\S]*?\\end\{[^}]*\})/);
-    if (latexMatch) {
-      return latexMatch[0];
+    // OLE binary may contain formula data in UTF-8 and/or UTF-16LE streams.
+    const utf8 = buffer.toString('utf8', 0, Math.min(buffer.length, 120000));
+    const utf16 = buffer.toString('utf16le', 0, Math.min(buffer.length, 120000));
+    const candidates = [utf8, utf16];
+
+    for (const text of candidates) {
+      if (!text) continue;
+
+      // 1. MathML
+      const mathmlMatch = text.match(/<math[\s\S]*?<\/math>/i);
+      if (mathmlMatch) return mathmlMatch[0];
+
+      // 2. Clear LaTeX blocks (often injected by plugins)
+      // Must have actual LaTeX contents, not just single letters
+      const latexMatch = text.match(/(?:\$[^$\r\n]{3,}\$|\\\([^\)]+\\\)|\\\[[\s\S]+?\\\]|\\begin\{[^}]*\}(?:.|\n)*?\\end\{[^}]*\})/);
+      if (latexMatch) {
+         const t = latexMatch[0].trim();
+         if (t.length >= 4) return t;
+      }
     }
-    
-    // Try to find visible formula text (alphanumeric + math operators)
-    const formulaMatch = text.match(/[A-Za-z0-9+\-=*/().^_{}\\[\]| ]+/);
-    if (formulaMatch && formulaMatch[0].length > 5) {
-      return formulaMatch[0].trim();
-    }
-    
+
     return '';
   } catch {
     return '';
   }
 }
+
 
 /**
  * Convert simple extracted formula text to basic LaTeX
@@ -192,8 +193,13 @@ export function replaceOleImagesWithLatex(
     
     if (formula.latex) {
       // Replace the WMF base64 in imageMap with a LaTeX marker
-      // Format: [[LATEX:formula_content]]
-      const latexMarker = `[[LATEX:${formula.latex}]]`;
+      // Format: [[LATEX:$...$]] for downstream renderer compatibility
+      const trimmed = formula.latex.trim();
+      const latexWithDelimiters =
+        trimmed.startsWith('$') || trimmed.startsWith('\\(') || trimmed.startsWith('\\[')
+          ? trimmed
+          : `$${trimmed}$`;
+      const latexMarker = `[[LATEX:${latexWithDelimiters}]]`;
       imageMap.set(wmfEntry.index, latexMarker);
       replacedCount++;
     }

@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import LaTeXRenderer from "./LaTeXRenderer";
+import SafeMathRenderer from "./SafeMathRenderer";
 
 interface InlineContentRendererProps {
   content: string;
@@ -38,6 +38,13 @@ export default function InlineContentRenderer({
     return `{{INLINE_IMG:${idx}}}`;
   });
 
+  // Handle [formula] placeholders — emitted by DOCX parser when OMML/MathType/OLE formulas
+  // cannot be extracted (binary OLE encoding, WMF images, OMML parse failure on Vercel/Linux).
+  // Replace with a visible styled badge so the question context is not broken.
+  if (normalizedContent.includes("[formula]")) {
+    normalizedContent = normalizedContent.replace(/\[formula\]/g, "{{FORMULA_PLACEHOLDER}}");
+  }
+
   // Handle square placeholders (□) that appear when formula conversion fails
   // These squares come from failed OMML-to-LaTeX conversion or missing formula data
   
@@ -55,13 +62,16 @@ export default function InlineContentRenderer({
   // Keep remaining square placeholders unchanged when no inline image is available.
   // This avoids hiding content with synthetic [CNx] tokens.
 
-  // If no inline image markers, delegate entirely to LaTeXRenderer
-  if (!normalizedContent.includes("{{INLINE_IMG:")) {
-    return <LaTeXRenderer content={normalizedContent} className={className} />;
+  // If no inline image markers AND no formula placeholders, delegate entirely to SafeMathRenderer
+  const hasInlineImg = normalizedContent.includes("{{INLINE_IMG:");
+  const hasFormula = normalizedContent.includes("{{FORMULA_PLACEHOLDER}}");
+
+  if (!hasInlineImg && !hasFormula) {
+    return <SafeMathRenderer content={normalizedContent} className={className} />;
   }
 
-  // Split on {{INLINE_IMG:N}} markers
-  const parts = normalizedContent.split(/(\{\{INLINE_IMG:\d+\}\})/g);
+  // Split on {{INLINE_IMG:N}} and {{FORMULA_PLACEHOLDER}} markers
+  const parts = normalizedContent.split(/(\{\{INLINE_IMG:\d+\}\}|\{\{FORMULA_PLACEHOLDER\}\})/g);
 
   return (
     <span
@@ -69,6 +79,34 @@ export default function InlineContentRenderer({
       style={{ fontSize: "1.1em" }}
     >
       {parts.map((part, i) => {
+        // Formula placeholder badge — DOCX parser couldn't extract this formula
+        if (part === "{{FORMULA_PLACEHOLDER}}") {
+          return (
+            <span
+              key={i}
+              title="Công thức không thể trích xuất từ file DOCX (MathType OLE / WMF)"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 3,
+                padding: "1px 7px",
+                borderRadius: 4,
+                background: "#fef3c7",
+                border: "1px solid #fbbf24",
+                color: "#92400e",
+                fontSize: "0.78em",
+                fontWeight: 600,
+                verticalAlign: "middle",
+                margin: "0 2px",
+                cursor: "help",
+                whiteSpace: "nowrap",
+              }}
+            >
+              ⚠ công thức
+            </span>
+          );
+        }
+
         const imgMatch = part.match(/^\{\{INLINE_IMG:(\d+)\}\}$/);
         if (imgMatch) {
           const imgIdx = parseInt(imgMatch[1], 10);
@@ -104,9 +142,9 @@ export default function InlineContentRenderer({
           }
           return null; // Image not found
         }
-        // Text segment — render with LaTeXRenderer for math support
+        // Text segment — render with SafeMathRenderer for image-based math
         if (part.trim()) {
-          return <LaTeXRenderer key={i} content={part} className={className} />;
+          return <SafeMathRenderer key={i} content={part} className={className} />;
         }
         return part ? <React.Fragment key={i}>{part}</React.Fragment> : null;
       })}

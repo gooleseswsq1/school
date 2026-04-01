@@ -468,62 +468,27 @@ export async function preprocessDocxMath(buffer: Buffer): Promise<Buffer> {
     let oleReplacedCount = 0;
 
     // ── Pre-pass: handle <w:object> blocks with OLE equation objects ──
-    // MathType and Equation.3 formulas are stored as OLE objects with WMF preview images.
-    // On Vercel (Linux), WMF→PNG conversion is unavailable, so these show as broken placeholders.
-    // Fix: replace the entire w:object with a [[LATEX:...]] text marker, stripping the WMF reference
-    // so Mammoth never sees the binary image.
+    // Leaving <w:object> unmodified allows Mammoth to extract the fallback WMF image.
+    // Downstream, wmf-converter will convert these WMFs to PNGs on Windows,
+    // and ole-extractor will map them to LaTeX if binary MTEF strings exist.
     xml = xml.replace(/<w:object\b[^>]*>([\s\S]*?)<\/w:object>/gi, (_match: string, inner: string) => {
-      // Check for OLE equation ProgID (Equation.3, MathType, etc.)
-      const progIdMatch = inner.match(/ProgID="([^"]*)"/i);
-      if (!progIdMatch) return _match;
-      const progId = progIdMatch[1];
-      if (!progId.includes('Equation') && !progId.includes('MathType')) return _match;
-
-      oleReplacedCount++;
-
-      // Try to extract any readable text from w:t elements inside the object
-      // (some Word files do embed a text representation alongside the binary)
-      const wtContents: string[] = [];
-      const wtRegex = /<w:t[^>]*>([^<]+)<\/w:t>/gi;
-      let wtMatch;
-      while ((wtMatch = wtRegex.exec(inner)) !== null) {
-        const t = wtMatch[1].trim();
-        if (t) wtContents.push(t);
-      }
-      const formulaText = wtContents.join(' ').trim();
-
-      // Build LaTeX: use extracted text if available, otherwise try to extract from nearby content
-      let latexContent = '';
+      // Find the <o:OLEObject> tag
+      const oleTagMatch = inner.match(/<o:OLEObject\b([^>]*)>/i);
+      if (!oleTagMatch) return _match;
       
-      if (formulaText.length > 0) {
-        // Try to clean and use the extracted text
-        latexContent = formulaText
-          .replace(/[{}\\]/g, '\\$&')
-          .replace(/\s+/g, ' ')
-          .trim();
-      } else {
-        // If no text found, use a more informative placeholder that won't render as square
-        // Try to extract any numeric or letter content from the OLE object
-        const anyText = inner.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-        if (anyText.length > 0 && anyText.length < 50) {
-          latexContent = `\\text{${anyText.replace(/[{}\\]/g, '\\$&')}}`;
-        } else {
-          // Use empty text marker instead of square - will be handled by renderer
-          latexContent = '';
-        }
+      const oleAttrs = oleTagMatch[1];
+      const progIdMatch = oleAttrs.match(/ProgID="([^"]*)"/i);
+      if (progIdMatch && (progIdMatch[1].includes('Equation') || progIdMatch[1].includes('MathType'))) {
+          // Just track that we have them; no replacement inside the XML.
+          oleReplacedCount++;
       }
-
-      // Only create marker if we have content
-      if (latexContent) {
-        return `<w:r><w:t xml:space="preserve"> [[LATEX:$${latexContent}$]] </w:t></w:r>`;
-      }
-      // No extractable text — insert a visible placeholder instead of invisible space
-      return `<w:r><w:t xml:space="preserve"> [formula] </w:t></w:r>`;
+      return _match; // DO NOT STRIP THE WMF IMAGE!
     });
 
     if (oleReplacedCount > 0) {
-      console.log(`[omml-to-latex] Replaced ${oleReplacedCount} OLE equation objects (MathType/Equation.3) with LaTeX markers`);
+      console.log(`[omml-to-latex] Found ${oleReplacedCount} OLE equation objects (MathType/Equation.3). Preserving for WMF+OLE extraction.`);
     }
+
 
     // ── First: extract OMML from <mc:AlternateContent> blocks ──
     // MathType and Word sometimes wrap math in AlternateContent with
