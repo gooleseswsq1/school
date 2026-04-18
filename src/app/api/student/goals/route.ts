@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { prisma } from '@/lib/prisma';
 
-const prisma = new PrismaClient();
+function isDbConnectionError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientInitializationError) {
+    return true;
+  }
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    return ['P1001', 'P1002', 'P1017'].includes(error.code);
+  }
+  return false;
+}
 
 /**
  * GET /api/student/goals?studentId=xxx
@@ -15,12 +24,24 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'studentId required' }, { status: 400 });
   }
 
-  const goals = await prisma.studentGoal.findMany({
-    where: { studentId },
-    orderBy: { createdAt: 'desc' },
-  });
+  try {
+    const goals = await prisma.studentGoal.findMany({
+      where: { studentId },
+      orderBy: { createdAt: 'desc' },
+    });
 
-  return NextResponse.json(goals);
+    return NextResponse.json(goals);
+  } catch (err: unknown) {
+    if (isDbConnectionError(err)) {
+      return NextResponse.json(
+        { error: 'Database unavailable, vui long thu lai sau it phut' },
+        { status: 503 }
+      );
+    }
+
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
 
 /**
@@ -50,6 +71,13 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(goal, { status: 201 });
   } catch (err: unknown) {
+    if (isDbConnectionError(err)) {
+      return NextResponse.json(
+        { error: 'Database unavailable, vui long thu lai sau it phut' },
+        { status: 503 }
+      );
+    }
+
     const message = err instanceof Error ? err.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });
   }
@@ -84,6 +112,13 @@ export async function PUT(req: NextRequest) {
 
     return NextResponse.json(goal);
   } catch (err: unknown) {
+    if (isDbConnectionError(err)) {
+      return NextResponse.json(
+        { error: 'Database unavailable, vui long thu lai sau it phut' },
+        { status: 503 }
+      );
+    }
+
     const message = err instanceof Error ? err.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });
   }
@@ -106,6 +141,13 @@ export async function DELETE(req: NextRequest) {
     await prisma.studentGoal.delete({ where: { id } });
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {
+    if (isDbConnectionError(err)) {
+      return NextResponse.json(
+        { error: 'Database unavailable, vui long thu lai sau it phut' },
+        { status: 503 }
+      );
+    }
+
     const message = err instanceof Error ? err.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });
   }

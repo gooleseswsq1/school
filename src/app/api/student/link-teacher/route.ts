@@ -1,9 +1,16 @@
 // app/api/student/link-teacher/route.ts
 // Học sinh gửi yêu cầu liên kết với giáo viên qua mã
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { prisma } from '@/lib/prisma';
 
-const prisma = new PrismaClient();
+function isLegacyTeacherUniqueError(error: unknown): error is Prisma.PrismaClientKnownRequestError {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
+    return false;
+  }
+
+  return error.code === 'P2002';
+}
 
 // POST: Học sinh gửi yêu cầu liên kết (hỗ trợ cả mã GV và mã lớp)
 export async function POST(req: NextRequest) {
@@ -61,45 +68,90 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Không tìm thấy giáo viên' }, { status: 404 });
     }
 
-    // Kiểm tra đã có yêu cầu chưa
-    const existing = await prisma.studentTeacher.findUnique({
-      where: { studentId_teacherId: { studentId, teacherId: teacher.id } },
+    const classId = classInfo?.id || null;
+
+    // Kiểm tra đã có yêu cầu chưa cho lớp cụ thể
+    const existing = await prisma.studentTeacher.findFirst({
+      where: { 
+        studentId, 
+        teacherId: teacher.id,
+        classId
+      },
     });
 
     if (existing) {
       if (existing.status === 'accepted') {
-        return NextResponse.json({ success: false, error: 'Bạn đã kết nối với giáo viên này' });
+        return NextResponse.json({ success: false, error: 'Bạn đã kết nối với giáo viên/lớp này rồi' });
       }
       if (existing.status === 'pending') {
-        return NextResponse.json({ success: false, error: 'Yêu cầu đang chờ giáo viên duyệt' });
+        return NextResponse.json({ success: false, error: 'Yêu cầu của bạn đang chờ giáo viên duyệt' });
       }
-      // Nếu rejected → cho phép gửi lại
+      // Nếu rejected → cho phép gửi lại bằng cách cập nhật
     }
 
     // Tính thời gian hết hạn (1 ngày)
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     // Tạo/cập nhật yêu cầu
-    const link = await prisma.studentTeacher.upsert({
-      where: { studentId_teacherId: { studentId, teacherId: teacher.id } },
-      update: { 
-        status: 'pending', 
-        requestExpiresAt: expiresAt, 
-        joinedAt: new Date(),
-        classId: classInfo?.id || null,  // Lưu classId nếu liên kết qua mã lớp
-      },
-      create: { 
-        studentId, 
-        teacherId: teacher.id, 
-        status: 'pending', 
-        requestExpiresAt: expiresAt,
-        classId: classInfo?.id || null,  // Lưu classId nếu liên kết qua mã lớp
-      },
-    });
+    let link;
+    let usedLegacyUniqueFallback = false;
+    if (existing) {
+      link = await prisma.studentTeacher.update({
+        where: { id: existing.id },
+        data: {
+          status: 'pending',
+          requestExpiresAt: expiresAt,
+          joinedAt: new Date(),
+          classId,
+        }
+      });
+    } else {
+      try {
+        link = await prisma.studentTeacher.create({
+          data: {
+            studentId,
+            teacherId: teacher.id,
+            status: 'pending',
+            requestExpiresAt: expiresAt,
+            classId,
+          }
+        });
+      } catch (error) {
+        // Legacy DB có unique(studentId, teacherId) sẽ nổ khi cùng GV nhưng lớp khác.
+        if (!isLegacyTeacherUniqueError(error)) {
+          throw error;
+        }
 
-    const message = linkType === 'class' 
-      ? `Đã gửi yêu cầu đến giáo viên ${teacher.name} (Lớp ${classInfo?.name})`
-      : `Đã gửi yêu cầu đến giáo viên ${teacher.name}`;
+        const legacyExisting = await prisma.studentTeacher.findFirst({
+          where: {
+            studentId,
+            teacherId: teacher.id,
+          },
+          orderBy: { joinedAt: 'desc' },
+        });
+
+        if (!legacyExisting) {
+          throw error;
+        }
+
+        link = await prisma.studentTeacher.update({
+          where: { id: legacyExisting.id },
+          data: {
+            classId,
+            status: 'pending',
+            requestExpiresAt: expiresAt,
+            joinedAt: new Date(),
+          },
+        });
+        usedLegacyUniqueFallback = true;
+      }
+    }
+
+    const message = usedLegacyUniqueFallback
+      ? 'Da cap nhat yeu cau lop moi. Vui long chay migration de ho tro cung giao vien nhieu lop dong thoi.'
+      : linkType === 'class' 
+        ? `Đã gửi yêu cầu đến giáo viên ${teacher.name} (Lớp ${classInfo?.name})`
+        : `Đã gửi yêu cầu đến giáo viên ${teacher.name}`;
 
     return NextResponse.json({
       success: true,
@@ -107,12 +159,11 @@ export async function POST(req: NextRequest) {
       teacherName: teacher.name,
       className: classInfo?.name,
       linkId: link.id,
+      legacyMode: usedLegacyUniqueFallback,
     });
   } catch (err: any) {
     console.error('[POST /api/student/link-teacher]', err);
     return NextResponse.json({ success: false, error: err.message || 'Lỗi server' }, { status: 500 });
-  } finally {
-    await prisma.$disconnect();
   }
 }
 
@@ -139,6 +190,14 @@ export async function GET(req: NextRequest) {
     const mapLink = (link: typeof links[0]) => {
       let subjects: string[] = [];
       try { subjects = JSON.parse(link.teacher.subjects || '[]'); } catch { /* ignore */ }
+
+      const classNames = links
+        .filter((x) => x.status === 'accepted' && x.teacher.id === link.teacher.id)
+        .map((x) => x.class?.name)
+        .filter((name): name is string => Boolean(name));
+
+      const uniqueClassNames = Array.from(new Set(classNames));
+
       return {
         id: link.id,
         teacherId: link.teacher.id,
@@ -149,6 +208,8 @@ export async function GET(req: NextRequest) {
         joinedAt: link.joinedAt,
         classId: link.class?.id || null,
         className: link.class?.name || null,
+        classNames: uniqueClassNames,
+        classDisplay: uniqueClassNames.join('/'),
         classGrade: link.class?.grade || null,
       };
     };
@@ -160,7 +221,5 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     console.error('[GET /api/student/link-teacher]', err);
     return NextResponse.json({ error: 'Server error' }, { status: 500 });
-  } finally {
-    await prisma.$disconnect();
   }
 }

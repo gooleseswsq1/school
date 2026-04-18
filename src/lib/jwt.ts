@@ -77,7 +77,7 @@ export function generateAccessToken(payload: Omit<JWTPayload, 'iat' | 'exp'>): s
 /**
  * Generate a long-lived refresh token (7 days)
  */
-export function generateRefreshToken(payload: { userId: string }): string {
+export function generateRefreshToken(payload: { userId: string; email?: string; role?: string }): string {
   return createToken({ ...payload, type: 'refresh' }, JWT_REFRESH_SECRET, '7d');
 }
 
@@ -106,6 +106,23 @@ export function verifyToken(token: string, type: 'access' | 'refresh' = 'access'
   } catch (error) {
     return null;
   }
+}
+
+// Backward-compatible API names used across legacy routes and tests.
+export function signAccessToken(payload: Omit<JWTPayload, 'iat' | 'exp'>): string {
+  return generateAccessToken(payload);
+}
+
+export function signRefreshToken(payload: { userId: string; email?: string; role?: string }): string {
+  return generateRefreshToken(payload);
+}
+
+export function verifyAccessToken(token: string): JWTPayload | null {
+  return verifyToken(token, 'access');
+}
+
+export function verifyRefreshToken(token: string): JWTPayload | null {
+  return verifyToken(token, 'refresh');
 }
 
 /**

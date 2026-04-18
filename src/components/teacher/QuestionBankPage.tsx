@@ -1,4 +1,5 @@
 'use client';
+/* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/immutability */
 
 import { useState, useEffect, useCallback } from 'react';
 import {

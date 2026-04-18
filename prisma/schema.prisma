@@ -123,6 +123,7 @@ model Class {
   students  StudentTeacher[]
   pages     Page[]
   schedules Schedule[]
+  libraryFiles LibraryFile[]
 
   @@unique([name, grade, schoolId, year])
   @@index([schoolId])
@@ -455,6 +456,7 @@ model Page {
   title       String
   slug        String
   description String?
+  subject     String?
   parentId    String?
   parent      Page?   @relation("PageHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
   children    Page[]  @relation("PageHierarchy")
@@ -484,6 +486,7 @@ model Page {
   @@index([publishMode])
   @@index([schoolId])
   @@index([classId])
+  @@index([subject])
   @@index([createdAt])
 }
 
@@ -639,11 +642,11 @@ model StudentTeacher {
   requestExpiresAt DateTime? // tự động xóa yêu cầu quá 1 ngày
   joinedAt         DateTime  @default(now())
 
-  @@unique([studentId, teacherId])
   @@index([teacherId, status])
   @@index([studentId])
   @@index([classId])
   @@index([requestExpiresAt])
+  @@unique([studentId, teacherId, classId])
 }
 
 // ─── Library file sharing ─────────────────────────────────────
@@ -655,9 +658,13 @@ model LibraryFile {
   fileType    String   // "pdf" | "word" | "image"
   fileName    String   // tên gốc của file
   fileSize    Int?     // bytes
+  visibility  String   @default("PUBLIC") // PUBLIC | CLASS
 
   teacher     User     @relation("TeacherLibrary", fields: [teacherId], references: [id], onDelete: Cascade)
   teacherId   String
+
+  class      Class?   @relation(fields: [classId], references: [id], onDelete: SetNull)
+  classId    String?
 
   comments    LibraryComment[]
 
@@ -665,6 +672,8 @@ model LibraryFile {
   updatedAt   DateTime @updatedAt
 
   @@index([teacherId])
+  @@index([classId])
+  @@index([visibility])
   @@index([createdAt])
 }
 

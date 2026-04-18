@@ -1,8 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { generateAccessToken, generateRefreshToken } from '@/lib/jwt';
 import crypto from 'crypto';
+
+function isMissingRefreshTokenTable(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
+    return false;
+  }
+
+  if (error.code !== 'P2021') {
+    return false;
+  }
+
+  const table = (error.meta as { table?: unknown } | undefined)?.table;
+  return typeof table === 'string' && table.includes('RefreshToken');
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -75,7 +89,11 @@ export async function POST(request: NextRequest) {
       });
     } catch (refreshError) {
       refreshStored = false;
-      console.error('Refresh token persistence failed:', refreshError);
+      if (isMissingRefreshTokenTable(refreshError)) {
+        console.warn('RefreshToken table missing. Login continues without refresh cookie.');
+      } else {
+        console.error('Refresh token persistence failed:', refreshError);
+      }
     }
 
     // Remove password from response

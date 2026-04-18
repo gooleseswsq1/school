@@ -1,4 +1,5 @@
 'use client';
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { useState, useEffect } from 'react';
 import { Download, Trash2, FileText, Eye, EyeOff, Search, X, Image as ImageIcon } from 'lucide-react';

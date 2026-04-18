@@ -1,8 +1,6 @@
 // app/api/teacher/stats/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { prisma } from '@/lib/prisma';
 
 /**
  * GET /api/teacher/stats?teacherId=xxx&className=xxx
@@ -21,11 +19,10 @@ export async function GET(request: NextRequest) {
 
   try {
     const [lectureCount, openExamCount, studentCount] = await Promise.all([
-      // Số bài giảng (Page) đã publish của GV này — lọc theo lớp nếu có
+      // Số bài giảng gốc của GV này — lọc theo lớp nếu có
       prisma.page.count({
         where: {
           authorId: teacherId,
-          isPublished: true,
           parentId: null,
           ...(classId ? { classId } : {}),
         },
@@ -59,7 +56,5 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('[GET /api/teacher/stats]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-  } finally {
-    await prisma.$disconnect();
   }
 }

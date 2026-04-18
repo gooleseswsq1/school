@@ -1,6 +1,7 @@
 // app/api/teacher/library/route.ts
 // Teacher library: upload files, list files
 import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 
 // GET: List files by teacher OR files from teachers linked to a student
@@ -23,17 +24,44 @@ export async function GET(req: NextRequest) {
     }
 
     if (studentId) {
-      // Student viewing files from their linked teachers
+      // Student sees:
+      // 1) PUBLIC files from all teachers
+      // 2) CLASS files from linked teachers for matching class
       const links = await prisma.studentTeacher.findMany({
         where: { studentId, status: 'accepted' },
-        select: { teacherId: true },
+        select: { teacherId: true, classId: true },
       });
-      const teacherIds = links.map((l) => l.teacherId);
 
-      if (teacherIds.length === 0) return NextResponse.json([]);
+      const classScopedConditions = links.map((link) => {
+        if (link.classId) {
+          return {
+            visibility: 'CLASS',
+            teacherId: link.teacherId,
+            OR: [
+              { classId: { equals: link.classId } },
+              { classId: { equals: null } },
+            ],
+          } as Prisma.LibraryFileWhereInput;
+        }
+
+        return {
+          visibility: 'CLASS',
+          teacherId: link.teacherId,
+          classId: { equals: null },
+        } as Prisma.LibraryFileWhereInput;
+      });
+
+      const whereClause: Prisma.LibraryFileWhereInput = classScopedConditions.length
+        ? {
+            OR: [
+              { visibility: 'PUBLIC' },
+              ...classScopedConditions,
+            ],
+          }
+        : { visibility: 'PUBLIC' };
 
       const files = await prisma.libraryFile.findMany({
-        where: { teacherId: { in: teacherIds } },
+        where: whereClause,
         include: {
           teacher: { select: { name: true } },
           _count: { select: { comments: true } },
@@ -54,7 +82,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { teacherId, title, description, fileUrl, fileType, fileName, fileSize } = body;
+    const { teacherId, title, description, fileUrl, fileType, fileName, fileSize, visibility, classId } = body;
 
     if (!teacherId || !title || !fileUrl || !fileType || !fileName) {
       return NextResponse.json({ error: 'Thiếu thông tin bắt buộc' }, { status: 400 });
@@ -66,9 +94,41 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Loại file không hợp lệ' }, { status: 400 });
     }
 
+    const normalizedVisibility = String(visibility || 'PUBLIC').toUpperCase();
+    if (!['PUBLIC', 'CLASS'].includes(normalizedVisibility)) {
+      return NextResponse.json({ error: 'visibility không hợp lệ' }, { status: 400 });
+    }
+
+    if (normalizedVisibility === 'CLASS' && classId) {
+      const classLink = await prisma.teacherClass.findUnique({
+        where: {
+          teacherId_classId: {
+            teacherId,
+            classId,
+          },
+        },
+      });
+      if (!classLink) {
+        return NextResponse.json({ error: 'Bạn không thuộc lớp đã chọn' }, { status: 403 });
+      }
+    }
+
     const file = await prisma.libraryFile.create({
-      data: { teacherId, title, description, fileUrl, fileType, fileName, fileSize },
-      include: { teacher: { select: { name: true } }, _count: { select: { comments: true } } },
+      data: {
+        teacherId,
+        title,
+        description,
+        fileUrl,
+        fileType,
+        fileName,
+        fileSize,
+        visibility: normalizedVisibility,
+        classId: normalizedVisibility === 'CLASS' ? (classId || null) : null,
+      },
+      include: {
+        teacher: { select: { name: true } },
+        _count: { select: { comments: true } },
+      },
     });
 
     return NextResponse.json(file, { status: 201 });

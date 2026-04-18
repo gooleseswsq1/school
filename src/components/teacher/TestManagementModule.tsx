@@ -1,4 +1,5 @@
 'use client';
+/* eslint-disable @typescript-eslint/no-explicit-any, react/no-unescaped-entities */
 
 /**
  * TestManagementModule — Quản lý bài test

@@ -521,7 +521,7 @@ sudo certbot --nginx -d yourdomain.com
 
 ### 📊 Điểm đánh giá (cập nhật): 6.2/10
 
-| Tiêu chí | Điểm | Nhận định hiện tại |
+| Tiêu chí | Điểm | Nhậ n định hiện tại |
 |----------|------|--------------------|
 | Error Handling | 6/10 | Nhiều route đã có try-catch, nhưng chưa đồng đều toàn bộ endpoint |
 | Database | 7/10 | Production định hướng PostgreSQL; SQLite giữ cho môi trường development |

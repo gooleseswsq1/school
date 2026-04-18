@@ -5,6 +5,7 @@ import { z } from "zod";
 const updatePageSchema = z.object({
   title: z.string().optional(),
   description: z.string().optional(),
+  subject: z.string().optional(),
   parentId: z.string().nullable().optional(),
   order: z.number().optional(),
   isPublished: z.boolean().optional(),

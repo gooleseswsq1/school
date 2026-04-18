@@ -45,11 +45,15 @@ function getLegacyAuthorizationHeaders(pathname: string, request: NextRequest): 
 
   const isCodesRoute = pathname.startsWith('/api/admin/codes');
   const isUsersRoute = pathname.startsWith('/api/admin/users');
+  const isTeacherRoute = pathname.startsWith('/api/teacher/');
+  const isStudentRoute = pathname.startsWith('/api/student/');
 
   const allowedForCodes = isCodesRoute && (legacyUser.role === 'ADMIN' || legacyUser.role === 'TEACHER');
   const allowedForUsers = isUsersRoute && legacyUser.role === 'ADMIN';
+  const allowedForTeacher = isTeacherRoute && (legacyUser.role === 'TEACHER' || legacyUser.role === 'ADMIN');
+  const allowedForStudent = isStudentRoute && (legacyUser.role === 'STUDENT' || legacyUser.role === 'ADMIN');
 
-  if (!allowedForCodes && !allowedForUsers) {
+  if (!allowedForCodes && !allowedForUsers && !allowedForTeacher && !allowedForStudent) {
     return null;
   }
 

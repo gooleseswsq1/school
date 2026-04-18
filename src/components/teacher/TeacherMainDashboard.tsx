@@ -1,6 +1,7 @@
 'use client';
+/* eslint-disable react-hooks/purity, react-hooks/set-state-in-effect, react/no-unescaped-entities */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LogOut, BookOpen, Library, ClipboardCheck,
   Check, Plus, Pencil, X, ChevronDown,
@@ -10,6 +11,7 @@ import {
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { clearAuthUser } from '@/lib/auth-storage';
+import { fetchWithAuthRetry } from '@/lib/fetchWithAuthRetry';
 import ExamCreator, { type ClassInfo } from './Examcreator';
 import TestManagementModule from './TestManagementModule';
 
@@ -39,6 +41,11 @@ interface StudentRequest {
   activeDays?: number;
   streak?: number;
   lastSeenDaysAgo?: number;
+}
+
+interface AcceptedStudentRow extends StudentRequest {
+  linkIds: string[];
+  className: string;
 }
 
 /* ─── Class modal ───────────────────────────────────────────── */
@@ -100,13 +107,27 @@ function ClassModal({ onSave, onClose, initialName }: {
 function StudentManagementView({ teacherId, onBack, activeClass }: { teacherId: string; onBack: () => void; activeClass: ClassInfo | null }) {
   const [requests, setRequests] = useState<StudentRequest[]>([]);
   const [loading, setLoading]   = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
+  const isFetchingRef = useRef(false);
 
-  const fetchRequests = useCallback(async () => {
-    setLoading(true);
+  const fetchRequests = useCallback(async (options?: { showLoading?: boolean }) => {
+    const showLoading = options?.showLoading ?? false;
+
+    if (isFetchingRef.current) {
+      return;
+    }
+
+    isFetchingRef.current = true;
+    if (showLoading) {
+      setLoading(true);
+    } else {
+      setIsRefreshing(true);
+    }
+
     try {
       const classQuery = activeClass?.id ? `&classId=${encodeURIComponent(activeClass.id)}` : '';
-      const res = await fetch(`/api/teacher/student-requests?teacherId=${teacherId}${classQuery}`);
+      const res = await fetchWithAuthRetry(`/api/teacher/student-requests?teacherId=${teacherId}${classQuery}`);
       if (res.ok) {
         const data = await res.json();
         // API trả về { pending: [...], accepted: [...] }
@@ -117,28 +138,47 @@ function StudentManagementView({ teacherId, onBack, activeClass }: { teacherId: 
         setRequests(allRequests);
       }
     } catch { /* ignore */ }
-    setLoading(false);
+
+    if (showLoading) {
+      setLoading(false);
+    } else {
+      setIsRefreshing(false);
+    }
+    isFetchingRef.current = false;
   }, [teacherId, activeClass?.id]);
 
-  useEffect(() => { fetchRequests(); }, [fetchRequests]);
+  useEffect(() => {
+    fetchRequests({ showLoading: true });
+  }, [fetchRequests]);
 
-  // Auto-polling: refresh student requests mỗi 15s
+  // Auto-polling nền: không bật loading toàn màn hình để tránh giật UI.
   useEffect(() => {
     const interval = setInterval(() => {
+      if (document.visibilityState !== 'visible') {
+        return;
+      }
+
       fetchRequests();
-    }, 15000);
+    }, 30000);
     return () => clearInterval(interval);
   }, [fetchRequests]);
 
-  const handleAction = async (linkId: string, action: 'accept' | 'reject' | 'remove') => {
-    setActionId(linkId);
+  const handleAction = async (linkId: string | string[], action: 'accept' | 'reject' | 'remove') => {
+    const linkIds = Array.isArray(linkId) ? linkId : [linkId];
+    const actionKey = linkIds.join(',');
+
+    setActionId(actionKey);
     try {
-      const res = await fetch('/api/teacher/student-requests', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ linkId, action }),
-      });
-      if (res.ok) fetchRequests();
+      const requests = linkIds.map((id) =>
+        fetchWithAuthRetry('/api/teacher/student-requests', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ linkId: id, action }),
+        })
+      );
+
+      const responses = await Promise.all(requests);
+      if (responses.every((res) => res.ok)) fetchRequests({ showLoading: false });
     } catch { /* ignore */ }
     setActionId(null);
   };
@@ -146,7 +186,38 @@ function StudentManagementView({ teacherId, onBack, activeClass }: { teacherId: 
   const pending  = requests.filter(r => r.status === 'pending');
   const accepted = requests.filter(r => r.status === 'accepted');
   const pendingFiltered = pending;
-  const acceptedFiltered = accepted;
+  const acceptedByStudent = new Map<string, AcceptedStudentRow>();
+
+  for (const request of accepted) {
+    const existing = acceptedByStudent.get(request.studentId);
+    const nextClassNames = Array.from(new Set([
+      ...(existing?.className ? existing.className.split('/') : []),
+      ...(request.className ? [request.className] : []),
+    ].filter(Boolean)));
+
+    if (!existing) {
+      acceptedByStudent.set(request.studentId, {
+        ...request,
+        linkIds: [request.linkId],
+        className: nextClassNames.join('/'),
+      });
+      continue;
+    }
+
+    acceptedByStudent.set(request.studentId, {
+      ...existing,
+      linkIds: [...existing.linkIds, request.linkId],
+      className: nextClassNames.join('/'),
+      activeDays: Math.max(existing.activeDays ?? 0, request.activeDays ?? 0),
+      streak: Math.max(existing.streak ?? 0, request.streak ?? 0),
+      lastSeenDaysAgo: Math.min(existing.lastSeenDaysAgo ?? Number.MAX_SAFE_INTEGER, request.lastSeenDaysAgo ?? Number.MAX_SAFE_INTEGER),
+    });
+  }
+
+  const acceptedFiltered = Array.from(acceptedByStudent.values()).map((item) => ({
+    ...item,
+    lastSeenDaysAgo: item.lastSeenDaysAgo === Number.MAX_SAFE_INTEGER ? undefined : item.lastSeenDaysAgo,
+  }));
 
   return (
     <div style={{ animation: 'dashReveal .28s ease both' }}>
@@ -159,6 +230,7 @@ function StudentManagementView({ teacherId, onBack, activeClass }: { teacherId: 
       </div>
       <div style={{ marginBottom: 16, fontSize: 11, color: '#60C8FF', fontWeight: 700 }}>
         Đang quản lý theo lớp: {activeClass?.name || 'Tất cả lớp'}
+        {isRefreshing && <span style={{ marginLeft: 8, color: 'rgba(255,255,255,.35)', fontWeight: 500 }}>· đang làm mới</span>}
       </div>
 
       {loading && (
@@ -181,6 +253,7 @@ function StudentManagementView({ teacherId, onBack, activeClass }: { teacherId: 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {pendingFiltered.map(r => {
                 const isExpiring = r.expiresAt && new Date(r.expiresAt) < new Date(Date.now() + 3 * 3600_000);
+                const isMultiClass = requests.filter(x => x.studentId === r.studentId).length > 1;
                 return (
                   <div key={r.linkId} style={{
                     background: 'rgba(255,255,255,.05)',
@@ -192,7 +265,10 @@ function StudentManagementView({ teacherId, onBack, activeClass }: { teacherId: 
                       🎒
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: '#E2EAF4' }}>{r.studentName}</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#E2EAF4' }}>
+                        {r.studentName}
+                        {isMultiClass && <span title="Đăng ký nhiều lớp" style={{ marginLeft: 6, fontSize: 13 }}>⭐</span>}
+                      </div>
                       <div style={{ fontSize: 11, color: 'rgba(255,255,255,.4)', marginTop: 2 }}>
                         {r.studentEmail}
                         {r.className && ` · Lớp ${r.className}`}
@@ -240,13 +316,19 @@ function StudentManagementView({ teacherId, onBack, activeClass }: { teacherId: 
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {acceptedFiltered.map(r => (
+              {acceptedFiltered.map((r) => {
+                const isMultiClass = r.linkIds.length > 1;
+                const actionKey = r.linkIds.join(',');
+                return (
                 <div key={r.linkId} style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
                   <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(96,200,255,.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#60C8FF', flexShrink: 0 }}>
                     {r.studentName.charAt(0)}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#E2EAF4' }}>{r.studentName}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#E2EAF4' }}>
+                      {r.studentName}
+                      {isMultiClass && <span title="Đăng ký nhiều lớp" style={{ marginLeft: 6, fontSize: 12 }}>⭐</span>}
+                    </div>
                     <div style={{ fontSize: 11, color: 'rgba(255,255,255,.35)' }}>
                       {r.studentEmail}
                       {r.className && ` · Lớp ${r.className}`}
@@ -276,14 +358,14 @@ function StudentManagementView({ teacherId, onBack, activeClass }: { teacherId: 
                       <Check style={{ width: 12, height: 12 }} /> Liên kết
                     </div>
                     <button
-                      onClick={() => handleAction(r.linkId, 'remove')}
-                      disabled={actionId === r.linkId}
+                      onClick={() => handleAction(r.linkIds, 'remove')}
+                      disabled={actionId === actionKey}
                       style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, background: 'rgba(248,113,113,.15)', color: '#f87171', border: '1px solid rgba(248,113,113,.3)', cursor: 'pointer' }}>
-                      {actionId === r.linkId ? '...' : 'Xóa'}
+                      {actionId === actionKey ? '...' : 'Xóa'}
                     </button>
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           )}
         </div>
@@ -297,12 +379,14 @@ interface LibraryFile {
   id: string;
   title: string;
   description?: string;
+  visibility: 'PUBLIC' | 'CLASS';
   fileUrl: string;
   fileType: string;
   fileName: string;
   fileSize?: number;
   createdAt: string;
   teacher: { name: string };
+  class?: { id: string; name: string } | null;
   _count: { comments: number };
 }
 
@@ -313,7 +397,12 @@ interface LibraryComment {
   author: { name: string; role: string };
 }
 
-function TeacherLibraryView({ teacherId, onBack }: { teacherId: string; onBack: () => void }) {
+function TeacherLibraryView({ teacherId, onBack, classes, activeClass }: {
+  teacherId: string;
+  onBack: () => void;
+  classes: ClassInfo[];
+  activeClass: ClassInfo | null;
+}) {
   const [files, setFiles] = useState<LibraryFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -323,13 +412,15 @@ function TeacherLibraryView({ teacherId, onBack }: { teacherId: string; onBack: 
   const [showUpload, setShowUpload] = useState(false);
   const [uploadTitle, setUploadTitle] = useState('');
   const [uploadDesc, setUploadDesc] = useState('');
+  const [uploadVisibility, setUploadVisibility] = useState<'PUBLIC' | 'CLASS'>('PUBLIC');
+  const [uploadClassId, setUploadClassId] = useState<string>('');
   const fileInputRef = useState<HTMLInputElement | null>(null);
   const [selectedFile, setSelectedFile] = useState<{ name: string; type: string; url: string; size: number } | null>(null);
 
   const fetchFiles = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/teacher/library?teacherId=${teacherId}`);
+      const res = await fetchWithAuthRetry(`/api/teacher/library?teacherId=${teacherId}`);
       if (res.ok) setFiles(await res.json());
     } catch { /* ignore */ }
     setLoading(false);
@@ -359,17 +450,24 @@ function TeacherLibraryView({ teacherId, onBack }: { teacherId: string; onBack: 
     if (!selectedFile || !uploadTitle.trim()) return;
     setUploading(true);
     try {
-      const res = await fetch('/api/teacher/library', {
+      const res = await fetchWithAuthRetry('/api/teacher/library', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           teacherId, title: uploadTitle.trim(), description: uploadDesc.trim() || undefined,
           fileUrl: selectedFile.url, fileType: selectedFile.type,
           fileName: selectedFile.name, fileSize: selectedFile.size,
+          visibility: uploadVisibility,
+          classId: uploadVisibility === 'CLASS' ? (uploadClassId || activeClass?.id || null) : null,
         }),
       });
       if (res.ok) {
-        setShowUpload(false); setUploadTitle(''); setUploadDesc(''); setSelectedFile(null);
+        setShowUpload(false);
+        setUploadTitle('');
+        setUploadDesc('');
+        setSelectedFile(null);
+        setUploadVisibility('PUBLIC');
+        setUploadClassId('');
         fetchFiles();
       }
     } catch { /* ignore */ }
@@ -378,20 +476,20 @@ function TeacherLibraryView({ teacherId, onBack }: { teacherId: string; onBack: 
 
   const handleDelete = async (id: string) => {
     if (!confirm('Xóa tài liệu này?')) return;
-    await fetch(`/api/teacher/library?id=${id}&teacherId=${teacherId}`, { method: 'DELETE' });
+    await fetchWithAuthRetry(`/api/teacher/library?id=${id}&teacherId=${teacherId}`, { method: 'DELETE' });
     setFiles(f => f.filter(x => x.id !== id));
   };
 
   const openComments = async (fileId: string) => {
     setCommentFileId(fileId);
     setCommentText('');
-    const res = await fetch(`/api/teacher/library/comments?fileId=${fileId}`);
+    const res = await fetchWithAuthRetry(`/api/teacher/library/comments?fileId=${fileId}`);
     if (res.ok) setComments(await res.json());
   };
 
   const submitComment = async () => {
     if (!commentFileId || !commentText.trim()) return;
-    const res = await fetch('/api/teacher/library/comments', {
+    const res = await fetchWithAuthRetry('/api/teacher/library/comments', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ fileId: commentFileId, authorId: teacherId, content: commentText }),
@@ -421,7 +519,7 @@ function TeacherLibraryView({ teacherId, onBack }: { teacherId: string; onBack: 
 
       <div style={{ fontSize: 18, fontWeight: 700, color: '#E2EAF4', marginBottom: 4 }}>Thư viện tài liệu</div>
       <div style={{ fontSize: 12, color: 'rgba(255,255,255,.4)', marginBottom: 20 }}>
-        Chia sẻ PDF, Word, ảnh — học sinh liên kết sẽ thấy
+        Chia sẻ PDF, Word, ảnh theo 2 che do: cong khai hoac rieng theo lop
       </div>
 
       {/* Upload modal */}
@@ -445,6 +543,57 @@ function TeacherLibraryView({ teacherId, onBack }: { teacherId: string; onBack: 
             <input id="library-upload-desc" name="uploadDesc" value={uploadDesc} onChange={e => setUploadDesc(e.target.value)}
               placeholder="Mô tả (tùy chọn)"
               style={{ display: 'block', width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,.15)', background: 'rgba(255,255,255,.05)', color: '#E2EAF4', fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: 16 }} />
+
+            <label style={{ fontSize: 11, color: 'rgba(255,255,255,.5)', display: 'block', marginBottom: 6 }}>Che do chia se</label>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <button
+                type="button"
+                onClick={() => setUploadVisibility('PUBLIC')}
+                style={{
+                  flex: 1,
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  border: '1px solid rgba(255,255,255,.15)',
+                  background: uploadVisibility === 'PUBLIC' ? 'rgba(24,95,165,.35)' : 'rgba(255,255,255,.04)',
+                  color: uploadVisibility === 'PUBLIC' ? '#60C8FF' : 'rgba(255,255,255,.6)',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                Cong khai
+              </button>
+              <button
+                type="button"
+                onClick={() => setUploadVisibility('CLASS')}
+                style={{
+                  flex: 1,
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  border: '1px solid rgba(255,255,255,.15)',
+                  background: uploadVisibility === 'CLASS' ? 'rgba(24,95,165,.35)' : 'rgba(255,255,255,.04)',
+                  color: uploadVisibility === 'CLASS' ? '#60C8FF' : 'rgba(255,255,255,.6)',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                Rieng theo lop
+              </button>
+            </div>
+
+            {uploadVisibility === 'CLASS' && (
+              <select
+                value={uploadClassId || activeClass?.id || ''}
+                onChange={(e) => setUploadClassId(e.target.value)}
+                style={{ display: 'block', width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,.15)', background: 'rgba(255,255,255,.05)', color: '#E2EAF4', fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: 16 }}
+              >
+                <option value="">Tat ca hoc sinh lien ket voi giao vien</option>
+                {classes.map((cls) => (
+                  <option key={cls.id} value={cls.id}>Lop {cls.name}</option>
+                ))}
+              </select>
+            )}
 
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => { setShowUpload(false); setSelectedFile(null); setUploadTitle(''); setUploadDesc(''); }}
@@ -509,6 +658,9 @@ function TeacherLibraryView({ teacherId, onBack }: { teacherId: string; onBack: 
                 {typeLabel(f.fileType)} · {new Date(f.createdAt).toLocaleDateString('vi-VN')}
                 {f.fileSize && ` · ${(f.fileSize / 1024).toFixed(0)} KB`}
               </div>
+                <div style={{ fontSize: 10, color: f.visibility === 'PUBLIC' ? '#4ADEAA' : '#60C8FF', marginTop: 2 }}>
+                  {f.visibility === 'PUBLIC' ? 'Cong khai toan bo hoc sinh' : `Rieng lop ${f.class?.name || 'lien ket giao vien'}`}
+                </div>
             </div>
             <button onClick={() => openComments(f.id)}
               style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 7, background: 'rgba(96,200,255,.1)', border: '1px solid rgba(96,200,255,.2)', color: '#60C8FF', fontSize: 12, cursor: 'pointer', flexShrink: 0 }}>
@@ -1025,9 +1177,15 @@ function LessonNameModal({ courseTitle, onConfirm, onClose }: {
 }
 
 /* ─── Lecture Name Modal ─────────────────────────────────── */
-function LectureNameModal({ onConfirm, onClose }: { onConfirm: (title: string, term: LectureTerm) => void; onClose: () => void }) {
+function LectureNameModal({ onConfirm, onClose, subjectOptions, defaultSubject }: {
+  onConfirm: (title: string, term: LectureTerm, subject?: string) => void;
+  onClose: () => void;
+  subjectOptions: string[];
+  defaultSubject?: string;
+}) {
   const [title, setTitle] = useState('');
   const [term, setTerm] = useState<LectureTerm>('MID_1');
+  const [subject, setSubject] = useState(defaultSubject || '');
   const [customTerms, setCustomTerms] = useState<Array<{ key: LectureTerm; label: string; short: string }>>([]);
   const hasValue = title.trim().length > 0;
   useEffect(() => {
@@ -1045,7 +1203,7 @@ function LectureNameModal({ onConfirm, onClose }: { onConfirm: (title: string, t
     ...customTerms.filter((ct) => !LECTURE_DEFAULT_TERM_OPTIONS.some((d) => d.key === ct.key)),
   ];
 
-  const confirm = () => { if (!hasValue) return; onConfirm(title.trim(), term); };
+  const confirm = () => { if (!hasValue) return; onConfirm(title.trim(), term, subject.trim() || undefined); };
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,8,20,.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div style={{ background: '#0D1829', border: '1px solid rgba(96,200,255,.25)', borderRadius: 20, padding: 28, width: '100%', maxWidth: 360 }}>
@@ -1087,6 +1245,26 @@ function LectureNameModal({ onConfirm, onClose }: { onConfirm: (title: string, t
             </button>
           ))}
         </div>
+        <label style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,.5)', display: 'block', marginBottom: 8 }}>Mon hoc</label>
+        {subjectOptions.length > 0 ? (
+          <select
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            style={{ display: 'block', width: '100%', padding: '10px 12px', borderRadius: 12, fontSize: 13, fontWeight: 600, background: 'rgba(255,255,255,.06)', color: '#E2EAF4', border: '1.5px solid rgba(255,255,255,.15)', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: 20 }}
+          >
+            <option value="">Chua phan mon</option>
+            {subjectOptions.map((item) => (
+              <option key={item} value={item}>{item}</option>
+            ))}
+          </select>
+        ) : (
+          <input
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            placeholder="Nhap mon hoc (tuy chon)"
+            style={{ display: 'block', width: '100%', padding: '10px 12px', borderRadius: 12, fontSize: 13, fontWeight: 600, background: 'rgba(255,255,255,.06)', color: '#E2EAF4', border: '1.5px solid rgba(255,255,255,.15)', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: 20 }}
+          />
+        )}
         <div style={{ display: 'flex', gap: 10 }}>
           <button onClick={onClose} style={{ flex: 1, padding: '12px 0', borderRadius: 12, fontSize: 14, fontWeight: 600, background: 'rgba(255,255,255,.06)', color: 'rgba(255,255,255,.5)', border: '1px solid rgba(255,255,255,.1)', cursor: 'pointer' }}>Huỷ</button>
           <button onClick={confirm} disabled={!hasValue} style={{ flex: 2, padding: '12px 0', borderRadius: 12, fontSize: 14, fontWeight: 700, background: hasValue ? '#0A3D2E' : 'rgba(255,255,255,.06)', color: hasValue ? '#7EFFB2' : 'rgba(255,255,255,.25)', border: hasValue ? '1px solid rgba(74,222,128,.3)' : 'none', cursor: hasValue ? 'pointer' : 'not-allowed' }}>
@@ -1113,7 +1291,7 @@ function TeacherScheduleView({ teacherId, activeClass, onBack }: {
     setLoading(true);
     try {
       const classParam = activeClass ? `&classId=${activeClass.id}` : '';
-      const res = await fetch(`/api/teacher/schedule?teacherId=${teacherId}${classParam}`);
+      const res = await fetchWithAuthRetry(`/api/teacher/schedule?teacherId=${teacherId}${classParam}`);
       if (res.ok) setSchedules(await res.json());
     } catch { /* ignore */ }
     setLoading(false);
@@ -1125,7 +1303,7 @@ function TeacherScheduleView({ teacherId, activeClass, onBack }: {
     if (!form.title || !form.date) return;
     const dateTime = new Date(`${form.date}T${form.time || '08:00'}`);
     try {
-      const res = await fetch('/api/teacher/schedule', {
+      const res = await fetchWithAuthRetry('/api/teacher/schedule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1149,7 +1327,7 @@ function TeacherScheduleView({ teacherId, activeClass, onBack }: {
 
   const handleDelete = async (id: string) => {
     try {
-      const res = await fetch('/api/teacher/schedule', {
+      const res = await fetchWithAuthRetry('/api/teacher/schedule', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id }),
@@ -1307,14 +1485,14 @@ export default function TeacherMainDashboard() {
     try {
       const params = new URLSearchParams({ teacherId, className });
       if (classId) params.set('classId', classId);
-      const res = await fetch(`/api/teacher/submissions/stats?${params}`);
+      const res = await fetchWithAuthRetry(`/api/teacher/submissions/stats?${params}`);
       if (res.ok) setStats(await res.json());
     } catch { /* ignore */ }
   };
 
   const fetchPendingCount = useCallback(async (teacherId: string) => {
     try {
-      const res = await fetch(`/api/teacher/student-requests?teacherId=${teacherId}`);
+      const res = await fetchWithAuthRetry(`/api/teacher/student-requests?teacherId=${teacherId}`);
       if (res.ok) {
         const data = await res.json();
         // API trả về { pending: [...], accepted: [...] }
@@ -1398,7 +1576,9 @@ export default function TeacherMainDashboard() {
         setActiveClassId(newCls.id);
         if (user) localStorage.setItem(`activeClass_${user.id}`, newCls.id);
         setShowFirstSetup(false);
-        if (user) fetchStats(user.id, newCls.name);
+        if (user) {
+          fetchStats(user.id, newCls.name, newCls.id);
+        }
       } else {
         console.error('Failed to save class to database');
         // Fallback to local storage only
@@ -1408,7 +1588,9 @@ export default function TeacherMainDashboard() {
         setActiveClassId(newCls.id);
         if (user) localStorage.setItem(`activeClass_${user.id}`, newCls.id);
         setShowFirstSetup(false);
-        if (user) fetchStats(user.id, newCls.name);
+        if (user) {
+          fetchStats(user.id, newCls.name, newCls.id);
+        }
       }
     } catch (error) {
       console.error('Error saving class:', error);
@@ -1419,13 +1601,17 @@ export default function TeacherMainDashboard() {
       setActiveClassId(newCls.id);
       if (user) localStorage.setItem(`activeClass_${user.id}`, newCls.id);
       setShowFirstSetup(false);
-      if (user) fetchStats(user.id, newCls.name);
+      if (user) {
+        fetchStats(user.id, newCls.name, newCls.id);
+      }
     }
   };
   const handleEditClass = (id: string, cls: Omit<ClassInfo, 'id'>) => {
     const updated = classes.map(c => c.id === id ? { ...c, ...cls } : c);
     saveClasses(updated);
-    if (id === activeClassId && user) fetchStats(user.id, cls.name);
+    if (id === activeClassId && user) {
+      fetchStats(user.id, cls.name, id);
+    }
     setEditClassId(null);
   };
   const handleLogout = () => {
@@ -1471,7 +1657,15 @@ export default function TeacherMainDashboard() {
                 <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, minWidth: 180, background: '#0D1829', border: '1px solid rgba(96,200,255,.2)', borderRadius: 10, overflow: 'hidden', zIndex: 60, boxShadow: '0 8px 24px rgba(0,0,0,.4)' }}>
                   {classes.map(c => (
                     <div key={c.id} style={{ display: 'flex', alignItems: 'center' }}>
-                      <button onClick={() => { setActiveClassId(c.id); setShowClassDrop(false); setView('home'); if (user) { localStorage.setItem(`activeClass_${user.id}`, c.id); fetchStats(user.id, c.name, c.id); } }}
+                      <button onClick={() => {
+                        setActiveClassId(c.id);
+                        setShowClassDrop(false);
+                        setView('home');
+                        if (user) {
+                          localStorage.setItem(`activeClass_${user.id}`, c.id);
+                          fetchStats(user.id, c.name, c.id);
+                        }
+                      }}
                         style={{ flex: 1, textAlign: 'left', padding: '10px 14px', fontSize: 13, background: c.id === activeClassId ? 'rgba(24,95,165,.4)' : 'transparent', color: '#E2EAF4', border: 'none', cursor: 'pointer', fontWeight: c.id === activeClassId ? 700 : 400 }}>
                         Lớp {c.name}
                       </button>
@@ -1631,9 +1825,9 @@ export default function TeacherMainDashboard() {
                 {/* Stats */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 20 }}>
                   {[
-                    { label: 'Bài giảng', val: stats.lectureCount || '—' },
-                    { label: 'Đề thi đang mở', val: stats.openExamCount || '—' },
-                    { label: 'Học sinh liên kết', val: stats.studentCount || '—' },
+                    { label: 'Bài giảng', val: stats.lectureCount ?? 0 },
+                    { label: 'Đề thi đang mở', val: stats.openExamCount ?? 0 },
+                    { label: 'Học sinh liên kết', val: stats.studentCount ?? 0 },
                   ].map(s => (
                     <div key={s.label} style={{ background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 12, padding: 16 }}>
                       <div style={{ fontSize: 11, color: 'rgba(255,255,255,.4)', marginBottom: 4 }}>{s.label}</div>
@@ -1820,6 +2014,8 @@ export default function TeacherMainDashboard() {
               <TeacherLibraryView
                 teacherId={user.id}
                 onBack={() => setView('home')}
+                classes={classes}
+                activeClass={activeClass}
               />
             )}
 
@@ -1844,7 +2040,7 @@ export default function TeacherMainDashboard() {
       )}
       {showLectureModal && (
         <LectureNameModal
-          onConfirm={async (title, term) => {
+          onConfirm={async (title, term, subject) => {
             setShowLectureModal(false);
             // Tạo khóa học mới và thêm vào danh sách
             try {
@@ -1856,6 +2052,7 @@ export default function TeacherMainDashboard() {
                   title, 
                   slug, 
                   description: `[TERM:${term}]`,
+                  subject,
                   authorId: user?.id,
                   classId: activeClass?.id || null,
                   isPublished: false 
@@ -1869,6 +2066,8 @@ export default function TeacherMainDashboard() {
               console.error('Error creating course:', err);
             }
           }}
+          subjectOptions={teacherSubjects}
+          defaultSubject={teacherSubjects[0]}
           onClose={() => setShowLectureModal(false)}
         />
       )}

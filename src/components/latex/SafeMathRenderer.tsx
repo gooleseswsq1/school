@@ -147,9 +147,11 @@ function getMathImageUrl(latex: string, isBlock: boolean = false): string {
   const displayStyle = isBlock ? "\\displaystyle " : "";
   const fullLatex = displayStyle + processed;
   
-  // CodeCogs URL format
-  // Use SVG for better quality
-  const url = `https://latex.codecogs.com/svg.latex?${encodeLatexForUrl(fullLatex)}`;
+  // CodeCogs PNG API format:
+  // https://latex.codecogs.com/png.latex?\dpi{300}{[LaTeX code]}
+  // Include \dpi{300} to ensure high quality rendering
+  const encodedFormula = encodeLatexForUrl(`\\dpi{300}{${fullLatex}}`);
+  const url = `https://latex.codecogs.com/png.latex?${encodedFormula}`;
   
   return url;
 }

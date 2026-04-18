@@ -6,12 +6,14 @@ interface LibraryFile {
   id: string;
   title: string;
   description?: string;
+  visibility: 'PUBLIC' | 'CLASS';
   fileUrl: string;
   fileType: string;
   fileName: string;
   fileSize?: number;
   createdAt: string;
   teacher: { name: string };
+  class?: { id: string; name: string } | null;
   _count: { comments: number };
 }
 
@@ -45,7 +47,8 @@ export default function StudentLibraryViewer() {
   const openComments = async (fileId: string) => {
     setCommentFileId(fileId);
     setCommentText('');
-    const res = await fetch(`/api/teacher/library/comments?fileId=${fileId}`);
+    const viewerParam = userId ? `&viewerId=${encodeURIComponent(userId)}` : '';
+    const res = await fetch(`/api/teacher/library/comments?fileId=${fileId}${viewerParam}`);
     if (res.ok) setComments(await res.json());
   };
 
@@ -67,11 +70,17 @@ export default function StudentLibraryViewer() {
   const typeIcon = (t: string) => t === 'pdf' ? '📄' : t === 'word' ? '📝' : '🖼️';
   const typeLabel = (t: string) => t === 'pdf' ? 'PDF' : t === 'word' ? 'Word' : 'Ảnh';
   const filesByTeacher = files.reduce<Record<string, LibraryFile[]>>((acc, file) => {
-    const teacherName = file.teacher?.name || 'Giáo viên';
+    const scopePrefix = file.visibility === 'PUBLIC'
+      ? 'Thu vien cong khai'
+      : `Thu vien lop ${file.class?.name || 'chia se rieng'}`;
+    const teacherName = `${scopePrefix} - ${file.teacher?.name || 'Giao vien'}`;
     if (!acc[teacherName]) acc[teacherName] = [];
     acc[teacherName].push(file);
     return acc;
   }, {});
+
+  const publicCount = files.filter((f) => f.visibility === 'PUBLIC').length;
+  const classCount = files.filter((f) => f.visibility === 'CLASS').length;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-950">
@@ -79,7 +88,15 @@ export default function StudentLibraryViewer() {
 
         <div className="mb-5">
           <h1 className="text-xl font-bold text-gray-900 dark:text-white">Thư viện tài liệu</h1>
-          <p className="text-sm text-gray-500 dark:text-slate-400 mt-0.5">Tài liệu từ giáo viên của bạn</p>
+          <p className="text-sm text-gray-500 dark:text-slate-400 mt-0.5">Gom thu vien cong khai va thu vien rieng theo lop</p>
+          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+            <span className="px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+              Cong khai: {publicCount}
+            </span>
+            <span className="px-2 py-1 rounded-full bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300">
+              Rieng lop: {classCount}
+            </span>
+          </div>
         </div>
 
         {/* Comment panel */}
@@ -151,6 +168,9 @@ export default function StudentLibraryViewer() {
                       </a>
                       <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">
                         {typeLabel(f.fileType)} · {new Date(f.createdAt).toLocaleDateString('vi-VN')}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
+                        {f.visibility === 'PUBLIC' ? 'Thu vien cong khai' : `Thu vien lop ${f.class?.name || 'rieng'}`}
                       </p>
                       {f.description && (
                         <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5 truncate">{f.description}</p>

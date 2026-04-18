@@ -31,6 +31,8 @@ interface LinkedTeacher {
   joinedAt: string;
   classId?: string | null;
   className?: string | null;
+  classNames?: string[];
+  classDisplay?: string | null;
   classGrade?: number | null;
 }
 
@@ -325,6 +327,12 @@ export default function StudentMainDashboard() {
           joinedAt: item.joinedAt,
           classId: item.classId || null,
           className: item.className || null,
+          classNames: Array.isArray(item.classNames)
+            ? item.classNames
+            : item.className
+              ? [item.className]
+              : [],
+          classDisplay: item.classDisplay || item.className || null,
           classGrade: item.classGrade || null,
         }));
 
@@ -416,6 +424,41 @@ export default function StudentMainDashboard() {
 
   const acceptedTeachers = linkedTeachers.filter(t => t.status !== 'pending');
   const pendingTeachers  = linkedTeachers.filter(t => t.status === 'pending');
+
+  const acceptedTeacherCards = useMemo(() => {
+    const map = new Map<string, LinkedTeacher>();
+
+    for (const teacher of acceptedTeachers) {
+      const existing = map.get(teacher.teacherId);
+      if (!existing) {
+        map.set(teacher.teacherId, {
+          ...teacher,
+          classNames: [...(teacher.classNames || (teacher.className ? [teacher.className] : []))],
+          classDisplay: teacher.classDisplay || teacher.className || null,
+        });
+        continue;
+      }
+
+      const mergedClassNames = Array.from(new Set([
+        ...(existing.classNames || []),
+        ...(teacher.classNames || []),
+        ...(teacher.className ? [teacher.className] : []),
+      ]));
+
+      const mergedSubjects = Array.from(new Set([...(existing.subjects || []), ...(teacher.subjects || [])]));
+
+      map.set(teacher.teacherId, {
+        ...existing,
+        id: existing.id,
+        joinedAt: existing.joinedAt > teacher.joinedAt ? existing.joinedAt : teacher.joinedAt,
+        classNames: mergedClassNames,
+        classDisplay: mergedClassNames.join('/'),
+        subjects: mergedSubjects,
+      });
+    }
+
+    return Array.from(map.values());
+  }, [acceptedTeachers]);
 
   useEffect(() => {
     if (selectedAuthorId !== null) return;
@@ -704,26 +747,27 @@ export default function StudentMainDashboard() {
               )}
             </div>
 
-            {/* Quick Stats - Inline */}
-            <div className="flex flex-wrap gap-3">
-              {[
-                { label: 'Bài giảng', value: pages.length, icon: <BookOpen size={18} />, color: 'blue' },
-                { label: 'Kiểm tra', value: exams.length, icon: <ClipboardCheck size={18} />, color: 'green' },
-                { label: 'Hoàn thành', value: exams.filter(e => e.status === 'done').length, icon: <Check size={18} />, color: 'purple' },
-                { label: 'Giáo viên', value: acceptedTeachers.length, icon: <GraduationCap size={18} />, color: 'orange' },
-              ].map((stat, index) => (
-                <div key={index} className="flex items-center gap-2 bg-white dark:bg-slate-900 rounded-xl px-4 py-2.5 border border-gray-100 dark:border-slate-800 shadow-sm">
-                  <div className={`w-8 h-8 rounded-lg bg-${stat.color}-100 dark:bg-${stat.color}-900/30 flex items-center justify-center`}>
-                    <div className={`text-${stat.color}-600 dark:text-${stat.color}-400`}>
-                      {stat.icon}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-lg font-bold text-gray-900 dark:text-white leading-tight">{stat.value}</div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400 leading-tight">{stat.label}</div>
-                  </div>
-                </div>
-              ))}
+            {/* Quick Stats - Compact */}
+            <div className="flex flex-wrap items-center gap-4 mt-3 lg:mt-0 bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-lg px-4 py-2 shadow-sm">
+              <div className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-white">
+                <BookOpen size={16} className="text-blue-500" />
+                {pages.length} Bài giảng
+              </div>
+              <div className="w-px h-4 bg-gray-200 dark:bg-slate-700 hidden sm:block"></div>
+              <div className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-white">
+                <ClipboardCheck size={16} className="text-green-500" />
+                {exams.length} Bài kiểm tra
+              </div>
+              <div className="w-px h-4 bg-gray-200 dark:bg-slate-700 hidden sm:block"></div>
+              <div className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-white">
+                <Check size={16} className="text-purple-500" />
+                {exams.filter(e => e.status === 'done').length} Hoàn thành
+              </div>
+              <div className="w-px h-4 bg-gray-200 dark:bg-slate-700 hidden sm:block"></div>
+              <div className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-white">
+                <GraduationCap size={16} className="text-orange-500" />
+                {acceptedTeachers.length} Giáo viên
+              </div>
             </div>
           </div>
         </div>
@@ -762,52 +806,7 @@ export default function StudentMainDashboard() {
         {/* Content based on active tab */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            {/* Notification cards */}
-            <section>
-              <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300 mb-3">Thông báo</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {/* Bài giảng mới */}
-                <button onClick={() => setActiveTab('lectures')}
-                  className="flex items-center gap-3 p-4 bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-xl hover:border-blue-300 dark:hover:border-blue-700 transition-colors text-left">
-                  <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center flex-shrink-0">
-                    <BookOpen size={20} className="text-blue-600 dark:text-blue-400" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs text-gray-500 dark:text-gray-400">Bài giảng</div>
-                    <div className="text-xl font-bold text-gray-900 dark:text-white">{pages.length}</div>
-                  </div>
-                  {pages.length > 0 && (
-                    <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center">{pages.length}</span>
-                  )}
-                </button>
-
-                {/* Bài kiểm tra */}
-                <button onClick={() => setActiveTab('exams')}
-                  className="flex items-center gap-3 p-4 bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-xl hover:border-orange-300 dark:hover:border-orange-700 transition-colors text-left">
-                  <div className="w-10 h-10 rounded-xl bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center flex-shrink-0">
-                    <ClipboardCheck size={20} className="text-orange-600 dark:text-orange-400" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs text-gray-500 dark:text-gray-400">Kiểm tra đang mở</div>
-                    <div className="text-xl font-bold text-gray-900 dark:text-white">{exams.filter(e => e.status === 'open').length}</div>
-                  </div>
-                  {exams.filter(e => e.status === 'open').length > 0 && (
-                    <span className="w-5 h-5 rounded-full bg-orange-500 text-white text-xs font-bold flex items-center justify-center">{exams.filter(e => e.status === 'open').length}</span>
-                  )}
-                </button>
-
-                {/* Sự kiện - placeholder */}
-                <div className="flex items-center gap-3 p-4 bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-xl">
-                  <div className="w-10 h-10 rounded-xl bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center flex-shrink-0">
-                    <Calendar size={20} className="text-purple-600 dark:text-purple-400" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs text-gray-500 dark:text-gray-400">Sự kiện</div>
-                    <div className="text-xl font-bold text-gray-900 dark:text-white">0</div>
-                  </div>
-                </div>
-              </div>
-            </section>
+            {/* Omitted large notification cards */}
 
             {/* Tools */}
             <section>
@@ -1191,7 +1190,7 @@ export default function StudentMainDashboard() {
             </div>
           ) : (
             <div className="flex flex-wrap gap-3">
-              {acceptedTeachers.map(t => {
+              {acceptedTeacherCards.map(t => {
                 const subjects = (t.subjects || []).join(', ');
                 const isSelectedTeacher = selectedAuthorId === t.teacherId;
                 return (
@@ -1210,7 +1209,7 @@ export default function StudentMainDashboard() {
                     </div>
                     <div>
                       <div className="text-sm font-semibold text-gray-900 dark:text-white">{t.teacherName}</div>
-                      {t.className && <div className="text-xs text-blue-500">Lớp {t.className}</div>}
+                      {t.classDisplay && <div className="text-xs text-blue-500">Lớp {t.classDisplay}</div>}
                       {subjects && <div className="text-xs text-gray-400">{subjects}</div>}
                     </div>
                     <Check size={16} className="text-green-500 ml-2" />

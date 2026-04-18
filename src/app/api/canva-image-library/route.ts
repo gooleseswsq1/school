@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getApiAuthUser } from "@/lib/api-auth";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 const upsertSchema = z.object({
@@ -16,6 +17,13 @@ const hideSchema = z.object({
 
 function canUseCanvaImageLibrary(role: string): boolean {
   return role === "TEACHER" || role === "ADMIN";
+}
+
+function isMissingCanvaImageLibraryTables(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError
+    && error.code === "P2021"
+  );
 }
 
 export async function GET(request: NextRequest) {
@@ -47,6 +55,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ images });
   } catch (error) {
     console.error("[GET /api/canva-image-library]", error);
+    if (isMissingCanvaImageLibraryTables(error)) {
+      return NextResponse.json(
+        {
+          error: "Canva image library tables are missing. Run Prisma migrations.",
+          code: "MIGRATION_REQUIRED",
+        },
+        { status: 503 }
+      );
+    }
     return NextResponse.json({ error: "Failed to list images" }, { status: 500 });
   }
 }
@@ -130,6 +147,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ image: asset });
   } catch (error) {
     console.error("[POST /api/canva-image-library]", error);
+    if (isMissingCanvaImageLibraryTables(error)) {
+      return NextResponse.json(
+        {
+          error: "Canva image library tables are missing. Run Prisma migrations.",
+          code: "MIGRATION_REQUIRED",
+        },
+        { status: 503 }
+      );
+    }
     return NextResponse.json({ error: "Failed to upsert image asset" }, { status: 500 });
   }
 }
@@ -166,6 +192,15 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ ok: true, count: updated.count });
   } catch (error) {
     console.error("[DELETE /api/canva-image-library]", error);
+    if (isMissingCanvaImageLibraryTables(error)) {
+      return NextResponse.json(
+        {
+          error: "Canva image library tables are missing. Run Prisma migrations.",
+          code: "MIGRATION_REQUIRED",
+        },
+        { status: 503 }
+      );
+    }
     return NextResponse.json({ error: "Failed to hide image" }, { status: 500 });
   }
 }
